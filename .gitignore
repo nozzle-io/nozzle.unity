@@ -1,0 +1,14 @@
+build/
+cmake-build-*/
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.csproj
+*.unityproj
+Library/
+Temp/
+Obj/
+Logs/

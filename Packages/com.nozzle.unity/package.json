@@ -1,0 +1,17 @@
+{
+  "name": "com.nozzle.unity",
+  "displayName": "Nozzle Texture Sharing",
+  "version": "0.1.0",
+  "unity": "2021.3",
+  "description": "GPU texture sharing between Unity and other applications via nozzle. Send or receive textures to/from nozzle-compatible applications (openFrameworks, Max, etc.) on macOS and Windows.",
+  "keywords": ["texture", "sharing", "syphon", "spout", "nozzle", "gpu", "interop"],
+  "author": {
+    "name": "nozzle",
+    "url": "https://github.com/nozzle-io/nozzle.unity"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nozzle-io/nozzle.unity.git"
+  }
+}
