@@ -1,5 +1,8 @@
 # nozzle.unity
 
+> This codebase is currently in its AI-slob prototyping phase: the code runs on momentum, vibes, and plausible intent.
+> Proper debugging will be introduced once demand graduates from hypothetical to measurable.
+
 Unity native plugin for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
 
 Send and receive textures between Unity and other nozzle-compatible applications (openFrameworks, Max/MSP, etc.) on macOS and Windows.
@@ -94,3 +97,7 @@ The native plugin wraps nozzle's C ABI (`nozzle_c.h`) with a handle-based API. U
 ## License
 
 MIT
+
+Third-party dependencies:
+
+- [nozzle](https://github.com/nozzle-io/nozzle) — MIT
