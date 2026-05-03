@@ -3,14 +3,14 @@
 > This codebase is currently in its AI-slob prototyping phase: the code runs on momentum, vibes, and plausible intent.
 > Proper debugging will be introduced once demand graduates from hypothetical to measurable.
 
-Unity native plugin for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
+Unity plugin for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
 
-Send and receive textures between Unity and other nozzle-compatible applications (openFrameworks, Max/MSP, etc.) on macOS and Windows.
+Send and receive textures between Unity and other nozzle-compatible applications (openFrameworks, Max/MSP, TouchDesigner, etc.) on macOS and Windows. GPU-side texture copy — no CPU readback.
 
 ## Features
 
-- **NozzleSender**: Publish Unity textures to the nozzle network
-- **NozzleReceiver**: Subscribe to textures from nozzle senders
+- **NozzleSender**: Publish Unity textures to the nozzle network via GPU copy
+- **NozzleReceiver**: Subscribe to textures from nozzle senders via GPU copy
 - **NozzleDiscovery**: Enumerate available senders at runtime
 - macOS (Metal/IOSurface) and Windows (D3D11) backends
 - Unity Package Manager compatible
@@ -19,7 +19,7 @@ Send and receive textures between Unity and other nozzle-compatible applications
 
 - Unity 2021.3+
 - macOS 12+ (Metal) or Windows 10+ (D3D11)
-- Built native plugin (`nozzle_unity.bundle` / `nozzle_unity.dll`)
+- Built [nozzle](https://github.com/nozzle-io/nozzle) native library (`libnozzle.a` / `nozzle.lib`)
 
 ## Installation
 
@@ -32,23 +32,19 @@ Send and receive textures between Unity and other nozzle-compatible applications
 ### Manual
 
 1. Clone this repository recursively: `git clone --recursive https://github.com/nozzle-io/nozzle.unity.git`
-2. Build the native plugin (see below)
-3. Copy the built plugin into your Unity project's `Plugins/` folder
+2. Build the nozzle native library
+3. Place the built library in your Unity project's `Assets/Plugins/Nozzle/`
 
-## Building the Native Plugin
+## Building the Native Library
 
 ```bash
 git clone --recursive https://github.com/nozzle-io/nozzle.unity.git
-cd nozzle.unity
+cd nozzle.unity/nozzle
 cmake -B build -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 cmake --build build --config Release
 ```
 
-The output plugin:
-- macOS: `build/nozzle_unity.bundle`
-- Windows: `build/Release/nozzle_unity.dll`
-
-Place the plugin in your Unity project under `Assets/Plugins/Nozzle/`.
+Place `libnozzle.a` (macOS) or `nozzle.lib` (Windows) in your Unity project under `Assets/Plugins/Nozzle/`.
 
 ## Usage
 
@@ -57,13 +53,13 @@ Place the plugin in your Unity project under `Assets/Plugins/Nozzle/`.
 1. Add a `NozzleSender` component to any GameObject
 2. Set the sender name (used by receivers to find this sender)
 3. Assign a `Texture` (Texture2D or RenderTexture) as the source
-4. The texture is published every frame while the component is enabled
+4. The texture is published every frame via GPU copy while the component is enabled
 
 ### Receiving Textures
 
 1. Add a `NozzleReceiver` component to any GameObject
 2. Set the sender name to connect to
-3. A `RenderTexture` is automatically created and updated each frame
+3. A `RenderTexture` is automatically created and updated each frame via GPU copy
 4. Read `LastFrameInfo` for metadata (resolution, frame index, timestamp)
 
 ### Discovery
@@ -89,10 +85,10 @@ if (receiver.IsConnected && receiver.TargetTexture != null)
 ## Architecture
 
 ```
-Unity C# (MonoBehaviour)  ←→  P/Invoke  ←→  nozzle_unity (C++ bridge)  ←→  nozzle (C static lib)
+Unity C# (MonoBehaviour)  ←→  P/Invoke  ←→  nozzle (C ABI — libnozzle)
 ```
 
-The native plugin wraps nozzle's C ABI (`nozzle_c.h`) with a handle-based API. Unity never sees raw pointers — all access is through integer handles managed by the bridge.
+The C# plugin calls nozzle's C ABI (`nozzle_c.h`) directly. Native texture pointers (`MTLTexture*` / `ID3D11Texture2D*`) from Unity's `Texture.GetNativeTexturePtr()` are passed to `nozzle_sender_publish_native_texture` and `nozzle_frame_copy_to_native_texture` for GPU-side texture copy. No intermediate C++ bridge layer.
 
 ## License
 

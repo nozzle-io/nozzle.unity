@@ -3,55 +3,140 @@ using System.Runtime.InteropServices;
 
 namespace Nozzle
 {
-    internal static class NozzleNative
+    internal static unsafe class NozzleNative
     {
-        const string LIBRARY = "nozzle_unity";
+        const string LIBRARY = "nozzle";
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NozzleSender;
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NozzleReceiver;
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NozzleFrame;
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NozzleTexture;
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NozzleDevice;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SenderDesc
+        {
+            public byte* Name;
+            public byte* ApplicationName;
+            public uint RingBufferSize;
+            public int AllowFormatFallback;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ReceiverDesc
+        {
+            public byte* Name;
+            public byte* ApplicationName;
+            public int ReceiveMode;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct AcquireDesc
+        {
+            public ulong TimeoutMs;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SenderInfo
+        {
+            public byte* Name;
+            public byte* ApplicationName;
+            public byte* Id;
+            public int Backend;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ConnectedSenderInfo
+        {
+            public byte* Name;
+            public byte* ApplicationName;
+            public byte* Id;
+            public int Backend;
+            public uint Width;
+            public uint Height;
+            public int Format;
+            public double EstimatedFps;
+            public ulong FrameCounter;
+            public ulong LastUpdateTimeNs;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FrameInfo
+        {
+            public ulong FrameIndex;
+            public ulong TimestampNs;
+            public uint Width;
+            public uint Height;
+            public int Format;
+            public uint DroppedFrameCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SenderInfoArray
+        {
+            public SenderInfo* Items;
+            public uint Count;
+        }
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_sender_create(string name, string app_name, uint ring_size);
+        public static extern int nozzle_sender_create(SenderDesc* desc, NozzleSender** out_sender);
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_unity_sender_destroy(int handle);
+        public static extern void nozzle_sender_destroy(NozzleSender* sender);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_sender_publish_texture(int handle, IntPtr native_texture, uint width, uint height, int format);
+        public static extern int nozzle_sender_publish_native_texture(
+            NozzleSender* sender, void* native_texture, uint width, uint height, int format);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_sender_commit_frame(int handle);
+        public static extern int nozzle_sender_acquire_writable_frame(
+            NozzleSender* sender, uint width, uint height, int format, NozzleFrame** out_frame);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_sender_get_info(int handle, byte[] name_buf, uint name_buf_size, byte[] app_buf, uint app_buf_size);
+        public static extern int nozzle_sender_commit_frame(NozzleSender* sender, NozzleFrame* frame);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_receiver_create(string name, string app_name);
+        public static extern int nozzle_sender_get_info(NozzleSender* sender, SenderInfo* out_info);
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_unity_receiver_destroy(int handle);
+        public static extern int nozzle_receiver_create(ReceiverDesc* desc, NozzleReceiver** out_receiver);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_receiver_acquire_frame(int handle, ulong timeout_ms);
+        public static extern void nozzle_receiver_destroy(NozzleReceiver* receiver);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_receiver_get_frame_info(int handle, out uint w, out uint h, out int format, out ulong frame_index, out ulong timestamp_ns);
+        public static extern int nozzle_receiver_acquire_frame(
+            NozzleReceiver* receiver, AcquireDesc* desc, NozzleFrame** out_frame);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_receiver_copy_to_texture(int handle, IntPtr native_texture, uint width, uint height);
+        public static extern void nozzle_frame_release(NozzleFrame* frame);
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_unity_receiver_release_frame(int handle);
+        public static extern int nozzle_frame_get_info(NozzleFrame* frame, FrameInfo* out_info);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_receiver_get_connected_info(int handle, byte[] name_buf, uint name_buf_size, byte[] app_buf, uint app_buf_size, out uint w, out uint h, out double fps);
-
-        public delegate void EnumerateCallback(string name, string app_name, string id, int backend, IntPtr ctx);
-
-        [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_enumerate_senders(EnumerateCallback callback, IntPtr ctx);
+        public static extern int nozzle_frame_copy_to_native_texture(
+            NozzleFrame* frame, void* native_texture, uint width, uint height, int format);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_unity_get_last_error_code(int handle);
+        public static extern int nozzle_receiver_get_connected_info(
+            NozzleReceiver* receiver, ConnectedSenderInfo* out_info);
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_unity_get_last_error_message(int handle, byte[] buf, uint buf_size);
+        public static extern int nozzle_enumerate_senders(SenderInfoArray* out_array);
+
+        [DllImport(LIBRARY)]
+        public static extern void nozzle_free_sender_info_array(SenderInfoArray* array);
+
+        [DllImport(LIBRARY)]
+        public static extern int nozzle_device_get_default(NozzleDevice** out_device);
+
+        [DllImport(LIBRARY)]
+        public static extern void nozzle_device_destroy(NozzleDevice* device);
     }
 }

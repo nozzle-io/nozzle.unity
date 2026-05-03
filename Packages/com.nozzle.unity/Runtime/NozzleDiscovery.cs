@@ -7,7 +7,7 @@ using UnityEngine;
 namespace Nozzle
 {
     [AddComponentMenu("Nozzle/Nozzle Discovery")]
-    public class NozzleDiscovery : MonoBehaviour
+    public unsafe class NozzleDiscovery : MonoBehaviour
     {
         public List<NozzleSenderInfo> AvailableSenders { get; private set; } = new List<NozzleSenderInfo>();
 
@@ -15,21 +15,8 @@ namespace Nozzle
         {
             AvailableSenders.Clear();
 
-            var results = new List<NozzleSenderInfo>();
-            var callback = new NozzleNative.EnumerateCallback(
-                (name, appName, id, backend, ctx) =>
-                {
-                    results.Add(new NozzleSenderInfo
-                    {
-                        Name = name,
-                        ApplicationName = appName,
-                        Id = id,
-                        Backend = (NozzleBackendType)backend,
-                    });
-                }
-            );
-
-            int ec = NozzleNative.nozzle_unity_enumerate_senders(callback, IntPtr.Zero);
+            var array = new NozzleNative.SenderInfoArray();
+            int ec = NozzleNative.nozzle_enumerate_senders(&array);
 
             if (ec != 0)
             {
@@ -37,6 +24,20 @@ namespace Nozzle
                 return;
             }
 
+            var results = new List<NozzleSenderInfo>();
+            for (uint i = 0; i < array.Count; i++)
+            {
+                var item = array.Items[i];
+                results.Add(new NozzleSenderInfo
+                {
+                    Name = PtrToString(item.Name),
+                    ApplicationName = PtrToString(item.ApplicationName),
+                    Id = PtrToString(item.Id),
+                    Backend = (NozzleBackendType)item.Backend,
+                });
+            }
+
+            NozzleNative.nozzle_free_sender_info_array(&array);
             AvailableSenders = results;
         }
 
@@ -48,6 +49,14 @@ namespace Nozzle
                 names[i] = AvailableSenders[i].Name;
             }
             return names;
+        }
+
+        static string PtrToString(byte* ptr)
+        {
+            if (ptr == null) return "";
+            int len = 0;
+            while (ptr[len] != 0) len++;
+            return Encoding.UTF8.GetString(ptr, len);
         }
     }
 }

@@ -5,14 +5,14 @@ using UnityEngine;
 namespace Nozzle
 {
     [AddComponentMenu("Nozzle/Nozzle Receiver")]
-    public class NozzleReceiver : MonoBehaviour
+    public unsafe class NozzleReceiver : MonoBehaviour
     {
         [SerializeField] string senderName = "";
         [SerializeField] string applicationName = "";
         [SerializeField] RenderTexture targetTexture;
         [SerializeField] uint timeoutMs = 100;
 
-        int handle;
+        NozzleNative.NozzleReceiver* handle;
         bool initialized;
         uint lastWidth;
         uint lastHeight;
@@ -36,12 +36,25 @@ namespace Nozzle
                 ? Application.productName
                 : applicationName;
 
-            handle = NozzleNative.nozzle_unity_receiver_create(senderName, appName);
+            var nameBytes = Encoding.UTF8.GetBytes(senderName + '\0');
+            var appBytes = Encoding.UTF8.GetBytes(appName + '\0');
 
-            if (handle <= 0)
+            fixed (byte* pName = nameBytes)
+            fixed (byte* pApp = appBytes)
             {
-                Debug.LogError($"[Nozzle] Failed to create receiver: error {handle}");
-                return;
+                var desc = new NozzleNative.ReceiverDesc
+                {
+                    Name = pName,
+                    ApplicationName = pApp,
+                    ReceiveMode = 0,
+                };
+
+                int ec = NozzleNative.nozzle_receiver_create(&desc, &handle);
+                if (ec != 0)
+                {
+                    Debug.LogError($"[Nozzle] Failed to create receiver: error {ec}");
+                    return;
+                }
             }
 
             initialized = true;
@@ -51,9 +64,8 @@ namespace Nozzle
         {
             if (!initialized) return;
 
-            NozzleNative.nozzle_unity_receiver_release_frame(handle);
-            NozzleNative.nozzle_unity_receiver_destroy(handle);
-            handle = 0;
+            NozzleNative.nozzle_receiver_destroy(handle);
+            handle = null;
             initialized = false;
             connected = false;
         }
@@ -62,7 +74,10 @@ namespace Nozzle
         {
             if (!initialized) return;
 
-            int ec = NozzleNative.nozzle_unity_receiver_acquire_frame(handle, timeoutMs);
+            var acquireDesc = new NozzleNative.AcquireDesc { TimeoutMs = timeoutMs };
+            NozzleNative.NozzleFrame* frame;
+
+            int ec = NozzleNative.nozzle_receiver_acquire_frame(handle, &acquireDesc, &frame);
 
             if (ec == (int)NozzleErrorCode.Timeout)
             {
@@ -73,56 +88,51 @@ namespace Nozzle
             if (ec != 0)
             {
                 connected = false;
-
-                if (ec == (int)NozzleErrorCode.SenderNotFound || ec == (int)NozzleErrorCode.SenderClosed)
+                if (ec == (int)NozzleErrorCode.SenderNotFound ||
+                    ec == (int)NozzleErrorCode.SenderClosed)
                 {
                     return;
                 }
-
-                LogError(handle, "acquire_frame");
+                Debug.LogError($"[Nozzle] acquire_frame failed: error {ec}");
                 return;
             }
 
-            uint w, h;
-            int fmt;
-            ulong frameIndex, timestampNs;
-
-            ec = NozzleNative.nozzle_unity_receiver_get_frame_info(
-                handle, out w, out h, out fmt, out frameIndex, out timestampNs
-            );
+            var info = new NozzleNative.FrameInfo();
+            ec = NozzleNative.nozzle_frame_get_info(frame, &info);
 
             if (ec != 0)
             {
-                LogError(handle, "get_frame_info");
+                NozzleNative.nozzle_frame_release(frame);
+                Debug.LogError($"[Nozzle] get_frame_info failed: error {ec}");
                 return;
             }
 
             connected = true;
             LastFrameInfo = new NozzleFrameInfo
             {
-                FrameIndex = frameIndex,
-                TimestampNs = timestampNs,
-                Width = w,
-                Height = h,
-                Format = (NozzleTextureFormat)fmt,
+                FrameIndex = info.FrameIndex,
+                TimestampNs = info.TimestampNs,
+                Width = info.Width,
+                Height = info.Height,
+                Format = (NozzleTextureFormat)info.Format,
             };
 
-            EnsureTargetTexture((int)w, (int)h, (NozzleTextureFormat)fmt);
+            EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.Format);
 
             if (targetTexture != null)
             {
-                NozzleNative.nozzle_unity_receiver_copy_to_texture(
-                    handle, targetTexture.GetNativeTexturePtr(), w, h
+                IntPtr nativePtr = targetTexture.GetNativeTexturePtr();
+                NozzleNative.nozzle_frame_copy_to_native_texture(
+                    frame, (void*)nativePtr, info.Width, info.Height, info.Format
                 );
             }
+
+            NozzleNative.nozzle_frame_release(frame);
         }
 
         void EnsureTargetTexture(int w, int h, NozzleTextureFormat fmt)
         {
-            if (targetTexture != null && lastWidth == w && lastHeight == h)
-            {
-                return;
-            }
+            if (targetTexture != null && lastWidth == w && lastHeight == h) return;
 
             if (targetTexture != null)
             {
@@ -166,15 +176,6 @@ namespace Nozzle
                 default:
                     return RenderTextureFormat.ARGB32;
             }
-        }
-
-        static void LogError(int handle, string operation)
-        {
-            int ec = NozzleNative.nozzle_unity_get_last_error_code(handle);
-            byte[] buf = new byte[256];
-            NozzleNative.nozzle_unity_get_last_error_message(handle, buf, 256);
-            string msg = Encoding.UTF8.GetString(buf).TrimEnd('\0');
-            Debug.LogError($"[Nozzle] {operation} failed: (0x{ec:x}) {msg}");
         }
     }
 }

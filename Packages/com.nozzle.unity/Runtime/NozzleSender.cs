@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Nozzle
 {
     [AddComponentMenu("Nozzle/Nozzle Sender")]
-    public class NozzleSender : MonoBehaviour
+    public unsafe class NozzleSender : MonoBehaviour
     {
         [SerializeField] string senderName = "NozzleSender";
         [SerializeField] string applicationName = "";
@@ -13,7 +13,7 @@ namespace Nozzle
         [SerializeField] Texture sourceTexture;
         [SerializeField] NozzleTextureFormat format = NozzleTextureFormat.BGRA8_UNORM;
 
-        int handle;
+        NozzleNative.NozzleSender* handle;
         bool initialized;
 
         void OnEnable()
@@ -24,12 +24,26 @@ namespace Nozzle
                 ? Application.productName
                 : applicationName;
 
-            handle = NozzleNative.nozzle_unity_sender_create(senderName, appName, ringBufferSize);
+            var nameBytes = Encoding.UTF8.GetBytes(senderName + '\0');
+            var appBytes = Encoding.UTF8.GetBytes(appName + '\0');
 
-            if (handle <= 0)
+            fixed (byte* pName = nameBytes)
+            fixed (byte* pApp = appBytes)
             {
-                Debug.LogError($"[Nozzle] Failed to create sender: error {handle}");
-                return;
+                var desc = new NozzleNative.SenderDesc
+                {
+                    Name = pName,
+                    ApplicationName = pApp,
+                    RingBufferSize = ringBufferSize,
+                    AllowFormatFallback = 1,
+                };
+
+                int ec = NozzleNative.nozzle_sender_create(&desc, &handle);
+                if (ec != 0)
+                {
+                    Debug.LogError($"[Nozzle] Failed to create sender: error {ec}");
+                    return;
+                }
             }
 
             initialized = true;
@@ -39,8 +53,8 @@ namespace Nozzle
         {
             if (!initialized) return;
 
-            NozzleNative.nozzle_unity_sender_destroy(handle);
-            handle = 0;
+            NozzleNative.nozzle_sender_destroy(handle);
+            handle = null;
             initialized = false;
         }
 
@@ -50,31 +64,16 @@ namespace Nozzle
 
             int w = sourceTexture.width;
             int h = sourceTexture.height;
+            IntPtr nativePtr = sourceTexture.GetNativeTexturePtr();
 
-            int ec = NozzleNative.nozzle_unity_sender_publish_texture(
-                handle, IntPtr.Zero, (uint)w, (uint)h, (int)format
+            int ec = NozzleNative.nozzle_sender_publish_native_texture(
+                handle, (void*)nativePtr, (uint)w, (uint)h, (int)format
             );
 
             if (ec != 0)
             {
-                LogError(handle, "publish_texture");
-                return;
+                Debug.LogError($"[Nozzle] publish_native_texture failed: error {ec}");
             }
-
-            ec = NozzleNative.nozzle_unity_sender_commit_frame(handle);
-            if (ec != 0)
-            {
-                LogError(handle, "commit_frame");
-            }
-        }
-
-        static void LogError(int handle, string operation)
-        {
-            int ec = NozzleNative.nozzle_unity_get_last_error_code(handle);
-            byte[] buf = new byte[256];
-            NozzleNative.nozzle_unity_get_last_error_message(handle, buf, 256);
-            string msg = Encoding.UTF8.GetString(buf).TrimEnd('\0');
-            Debug.LogError($"[Nozzle] {operation} failed: (0x{ec:x}) {msg}");
         }
     }
 }
