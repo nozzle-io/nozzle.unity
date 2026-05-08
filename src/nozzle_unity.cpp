@@ -45,7 +45,8 @@ int nozzle_unity_sender_create(const char *name, const char *app_name, uint32_t 
     desc.name = name;
     desc.application_name = app_name ? app_name : "";
     desc.ring_buffer_size = ring_size > 0 ? ring_size : 3;
-    desc.allow_format_fallback = 1;
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
 
     NozzleSender *sender{nullptr};
     auto ec = nozzle_sender_create(&desc, &sender);
