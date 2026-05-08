@@ -69,6 +69,7 @@ namespace Nozzle
         public uint Width;
         public uint Height;
         public NozzleTextureFormat Format;
+        public NozzleTextureFormat SemanticFormat;
         public uint DroppedFrameCount;
     }
 

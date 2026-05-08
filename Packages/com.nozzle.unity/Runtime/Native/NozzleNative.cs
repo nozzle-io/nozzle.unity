@@ -60,9 +60,11 @@ namespace Nozzle
             public uint Width;
             public uint Height;
             public int Format;
+            public int SemanticFormat;
             public double EstimatedFps;
             public ulong FrameCounter;
             public ulong LastUpdateTimeNs;
+            public ulong NativeFormatModifier;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -73,6 +75,9 @@ namespace Nozzle
             public uint Width;
             public uint Height;
             public int Format;
+            public int SemanticFormat;
+            public int TransferMode;
+            public int SyncMode;
             public uint DroppedFrameCount;
         }
 

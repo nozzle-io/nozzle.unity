@@ -188,7 +188,7 @@ int nozzle_unity_receiver_acquire_frame(int handle, uint64_t timeout_ms) {
     return to_error_code(ec);
 }
 
-int nozzle_unity_receiver_get_frame_info(int handle, uint32_t *w, uint32_t *h, int *format, uint64_t *frame_index, uint64_t *timestamp_ns) {
+int nozzle_unity_receiver_get_frame_info(int handle, uint32_t *w, uint32_t *h, int *format, int *semantic_format, uint64_t *frame_index, uint64_t *timestamp_ns) {
     std::lock_guard<std::mutex> lock(g_receivers_mutex);
     auto it = g_receivers.find(handle);
     if (it == g_receivers.end()) return to_error_code(NOZZLE_ERROR_INVALID_ARGUMENT);
@@ -208,6 +208,7 @@ int nozzle_unity_receiver_get_frame_info(int handle, uint32_t *w, uint32_t *h, i
     if (w) *w = info.width;
     if (h) *h = info.height;
     if (format) *format = static_cast<int>(info.format);
+    if (semantic_format) *semantic_format = static_cast<int>(info.semantic_format);
     if (frame_index) *frame_index = info.frame_index;
     if (timestamp_ns) *timestamp_ns = info.timestamp_ns;
 
@@ -254,7 +255,7 @@ void nozzle_unity_receiver_release_frame(int handle) {
     }
 }
 
-int nozzle_unity_receiver_get_connected_info(int handle, char *name_buf, uint32_t name_buf_size, char *app_buf, uint32_t app_buf_size, uint32_t *w, uint32_t *h, double *fps) {
+int nozzle_unity_receiver_get_connected_info(int handle, char *name_buf, uint32_t name_buf_size, char *app_buf, uint32_t app_buf_size, uint32_t *w, uint32_t *h, int *format, int *semantic_format, double *fps) {
     std::lock_guard<std::mutex> lock(g_receivers_mutex);
     auto it = g_receivers.find(handle);
     if (it == g_receivers.end()) return to_error_code(NOZZLE_ERROR_INVALID_ARGUMENT);
@@ -276,6 +277,8 @@ int nozzle_unity_receiver_get_connected_info(int handle, char *name_buf, uint32_
     }
     if (w) *w = info.width;
     if (h) *h = info.height;
+    if (format) *format = static_cast<int>(info.format);
+    if (semantic_format) *semantic_format = static_cast<int>(info.semantic_format);
     if (fps) *fps = info.estimated_fps;
 
     return to_error_code(NOZZLE_OK);

@@ -115,6 +115,7 @@ namespace Nozzle
                 Width = info.Width,
                 Height = info.Height,
                 Format = (NozzleTextureFormat)info.Format,
+                SemanticFormat = (NozzleTextureFormat)info.SemanticFormat,
             };
 
             EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.Format);
