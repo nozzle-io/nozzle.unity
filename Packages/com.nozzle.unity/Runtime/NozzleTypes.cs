@@ -114,6 +114,8 @@ namespace Nozzle
         public uint Height;
         public NozzleTextureFormat Format;
         public NozzleTextureFormat SemanticFormat;
+        public NozzleTransferMode TransferMode;
+        public NozzleSyncMode SyncMode;
         public uint DroppedFrameCount;
     }
 

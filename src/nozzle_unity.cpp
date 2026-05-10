@@ -233,7 +233,11 @@ int nozzle_unity_receiver_copy_to_texture(int handle, void *native_texture, uint
     }
 
     NozzleMappedPixels pixels{};
-    ec = nozzle_frame_lock_pixels(it->second.current_frame, &pixels);
+    ec = nozzle_frame_lock_pixels_with_origin(
+        it->second.current_frame,
+        NOZZLE_ORIGIN_TOP_LEFT,
+        &pixels
+    );
     if (ec != NOZZLE_OK) {
         it->second.last_error = ec;
         return to_error_code(ec);

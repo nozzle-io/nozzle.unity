@@ -116,6 +116,9 @@ namespace Nozzle
                 Height = info.Height,
                 Format = (NozzleTextureFormat)info.Format,
                 SemanticFormat = (NozzleTextureFormat)info.SemanticFormat,
+                TransferMode = (NozzleTransferMode)info.TransferMode,
+                SyncMode = (NozzleSyncMode)info.SyncMode,
+                DroppedFrameCount = info.DroppedFrameCount,
             };
 
             EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.Format);
@@ -180,7 +183,14 @@ namespace Nozzle
                 case NozzleTextureFormat.RGB32_FLOAT:
                 case NozzleTextureFormat.RGBA32_FLOAT:
                     return RenderTextureFormat.ARGBFloat;
+                case NozzleTextureFormat.R32_UINT:
+                case NozzleTextureFormat.RGBA32_UINT:
+                case NozzleTextureFormat.RGB32_UINT:
+                case NozzleTextureFormat.Depth32_FLOAT:
+                    Debug.LogWarning($"[Nozzle] Unsupported RenderTexture format: {fmt}, falling back to ARGB32");
+                    return RenderTextureFormat.ARGB32;
                 default:
+                    Debug.LogWarning($"[Nozzle] Unknown texture format: {fmt}, falling back to ARGB32");
                     return RenderTextureFormat.ARGB32;
             }
         }
