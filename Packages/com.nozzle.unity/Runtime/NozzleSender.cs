@@ -35,7 +35,9 @@ namespace Nozzle
                     Name = pName,
                     ApplicationName = pApp,
                     RingBufferSize = ringBufferSize,
-                    AllowFormatFallback = 1,
+                    AllowFormatFallback = 0,
+                    FallbackFlags = NozzleNative.FALLBACK_SAFE_DEFAULTS,
+                    FallbackFlagsValid = 1,
                 };
 
                 int ec = NozzleNative.nozzle_sender_create(&desc, &handle);

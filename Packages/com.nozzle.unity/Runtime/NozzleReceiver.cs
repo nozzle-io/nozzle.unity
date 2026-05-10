@@ -152,28 +152,34 @@ namespace Nozzle
         {
             switch (fmt)
             {
-                case NozzleTextureFormat.BGRA8_UNORM:
+                case NozzleTextureFormat.R8_UNORM:
+                case NozzleTextureFormat.RG8_UNORM:
+                case NozzleTextureFormat.RGB8_UNORM:
                 case NozzleTextureFormat.RGBA8_UNORM:
-                    return RenderTextureFormat.ARGB32;
-                case NozzleTextureFormat.BGRA8_SRGB:
+                case NozzleTextureFormat.BGRA8_UNORM:
                 case NozzleTextureFormat.RGBA8_SRGB:
+                case NozzleTextureFormat.BGRA8_SRGB:
                     return RenderTextureFormat.ARGB32;
-                case NozzleTextureFormat.RGBA16_FLOAT:
+                case NozzleTextureFormat.R16_UNORM:
+                    return RenderTextureFormat.R16;
+                case NozzleTextureFormat.RG16_UNORM:
+                case NozzleTextureFormat.RGB16_UNORM:
+                case NozzleTextureFormat.RGBA16_UNORM:
                     return RenderTextureFormat.ARGBHalf;
                 case NozzleTextureFormat.R16_FLOAT:
                     return RenderTextureFormat.RHalf;
                 case NozzleTextureFormat.RG16_FLOAT:
                     return RenderTextureFormat.RGHalf;
-                case NozzleTextureFormat.RGBA32_FLOAT:
-                    return RenderTextureFormat.ARGBFloat;
+                case NozzleTextureFormat.RGB16_FLOAT:
+                case NozzleTextureFormat.RGBA16_FLOAT:
+                    return RenderTextureFormat.ARGBHalf;
                 case NozzleTextureFormat.R32_FLOAT:
                     return RenderTextureFormat.RFloat;
                 case NozzleTextureFormat.RG32_FLOAT:
                     return RenderTextureFormat.RGFloat;
-                case NozzleTextureFormat.R16_UNORM:
-                    return RenderTextureFormat.R16;
-                case NozzleTextureFormat.RG8_UNORM:
-                    return RenderTextureFormat.RG16;
+                case NozzleTextureFormat.RGB32_FLOAT:
+                case NozzleTextureFormat.RGBA32_FLOAT:
+                    return RenderTextureFormat.ARGBFloat;
                 default:
                     return RenderTextureFormat.ARGB32;
             }

@@ -7,6 +7,12 @@ namespace Nozzle
     {
         const string LIBRARY = "nozzle";
 
+        internal const uint FALLBACK_NONE = 0;
+        internal const uint FALLBACK_STORAGE_COMPATIBLE = 1u << 0;
+        internal const uint FALLBACK_CHANNEL_EXPANSION = 1u << 1;
+        internal const uint FALLBACK_QUALITY_LOSS = 1u << 2;
+        internal const uint FALLBACK_SAFE_DEFAULTS = FALLBACK_STORAGE_COMPATIBLE | FALLBACK_CHANNEL_EXPANSION;
+
         [StructLayout(LayoutKind.Sequential)]
         public struct NozzleSender;
         [StructLayout(LayoutKind.Sequential)]
@@ -25,6 +31,8 @@ namespace Nozzle
             public byte* ApplicationName;
             public uint RingBufferSize;
             public int AllowFormatFallback;
+            public uint FallbackFlags;
+            public int FallbackFlagsValid;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -97,6 +105,10 @@ namespace Nozzle
         [DllImport(LIBRARY)]
         public static extern int nozzle_sender_publish_native_texture(
             NozzleSender* sender, void* native_texture, uint width, uint height, int format);
+
+        [DllImport(LIBRARY)]
+        public static extern int nozzle_sender_publish_native_texture_ex(
+            NozzleSender* sender, void* native_texture, uint width, uint height, int storage_format, int semantic_format);
 
         [DllImport(LIBRARY)]
         public static extern int nozzle_sender_acquire_writable_frame(
