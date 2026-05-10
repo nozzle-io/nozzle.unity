@@ -27,7 +27,7 @@ If you encounter problems, please do not become angry; instead, contributions in
 
 - Unity 2021.3+
 - macOS 12+ (Metal) or Windows 10+ (D3D11)
-- Built [nozzle](https://github.com/nozzle-io/nozzle) native library (`libnozzle.a` / `nozzle.lib`)
+- Built [nozzle](https://github.com/nozzle-io/nozzle) native library as shared library
 
 ## Installation
 
@@ -48,11 +48,11 @@ If you encounter problems, please do not become angry; instead, contributions in
 ```bash
 git clone --recursive https://github.com/nozzle-io/nozzle.unity.git
 cd nozzle.unity/nozzle
-cmake -B build -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+cmake -B build -DBUILD_SHARED_LIBS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 cmake --build build --config Release
 ```
 
-Place `libnozzle.a` (macOS) or `nozzle.lib` (Windows) in your Unity project under `Assets/Plugins/Nozzle/`.
+Place `libnozzle.dylib` (macOS) or `nozzle.dll` (Windows) in your Unity project under `Assets/Plugins/Nozzle/`. Unity resolves `DllImport("nozzle")` against these files.
 
 ## Usage
 

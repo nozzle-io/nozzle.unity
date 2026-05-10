@@ -12,6 +12,6 @@ GPU texture sharing between Unity and other applications via [nozzle](https://gi
 
 ## Quick Start
 
-1. Build the native plugin from the repository root
-2. Place `nozzle_unity.bundle` (macOS) or `nozzle_unity.dll` (Windows) in `Assets/Plugins/Nozzle/`
+1. Build nozzle as a shared library (`-DBUILD_SHARED_LIBS=ON`)
+2. Place `libnozzle.dylib` (macOS) or `nozzle.dll` (Windows) in `Assets/Plugins/Nozzle/`
 3. Add a NozzleSender or NozzleReceiver component to a GameObject
