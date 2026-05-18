@@ -14,6 +14,7 @@ namespace Nozzle
         SenderClosed = 9,
         Timeout = 10,
         BackendError = 11,
+        CommandFailed = 12,
     }
 
     public enum NozzleBackendType
