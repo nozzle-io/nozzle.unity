@@ -87,6 +87,12 @@ def check_runtime_sources() -> None:
     ]
     for path in required_runtime_files:
         require_file(path)
+
+    runtime_sources = sorted(RUNTIME_ROOT.rglob("*.cs"))
+    if not runtime_sources:
+        fail(f"no runtime C# files found under {RUNTIME_ROOT.relative_to(ROOT)}")
+
+    for path in runtime_sources:
         require_text(path, "namespace Nozzle")
 
     native = RUNTIME_ROOT / "Native" / "NozzleNative.cs"
