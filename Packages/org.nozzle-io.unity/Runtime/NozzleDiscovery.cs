@@ -13,10 +13,26 @@ namespace Nozzle
 
         public void Refresh()
         {
+            NozzleRuntimeSupport.WarnExperimentalRuntime(nameof(NozzleDiscovery));
+
             AvailableSenders.Clear();
 
             var array = new NozzleNative.SenderInfoArray();
-            int ec = NozzleNative.nozzle_enumerate_senders(&array);
+            int ec;
+            try
+            {
+                ec = NozzleNative.nozzle_enumerate_senders(&array);
+            }
+            catch (DllNotFoundException exception)
+            {
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+                return;
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+                return;
+            }
 
             if (ec != 0)
             {

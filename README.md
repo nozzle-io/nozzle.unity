@@ -1,107 +1,55 @@
 # nozzle.unity
 
-> This codebase is currently in its AI-slob prototyping phase: the code runs on momentum, vibes, and plausible intent.
-> Proper debugging will be introduced once demand graduates from hypothetical to measurable.
+Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
 
-Unity plugin for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
-
-Send and receive textures between Unity and other nozzle-compatible applications (openFrameworks, Max/MSP, TouchDesigner, etc.) on macOS and Windows. GPU-side texture copy — no CPU readback.
-
-## Disclaimer / Notice
-
-This library is currently a work in progress and contains many incomplete features and unverified implementations.
-Although it may appear usable at first glance, it may not function correctly.
-
-Please use it with the understanding that no guarantees are made regarding its behavior, and perform debugging, validation, and review as needed.
-If you encounter problems, please do not become angry; instead, contributions in the form of Issues or Pull Requests would be greatly appreciated.
-
-## Features
-
-- **NozzleSender**: Publish Unity textures to the nozzle network via GPU copy
-- **NozzleReceiver**: Subscribe to textures from nozzle senders via GPU copy
-- **NozzleDiscovery**: Enumerate available senders at runtime
-- macOS (Metal/IOSurface) and Windows (D3D11) backends
-- Unity Package Manager compatible
-
-## Requirements
-
-- Unity 2021.3+
-- macOS 12+ (Metal) or Windows 10+ (D3D11)
-- Built [nozzle](https://github.com/nozzle-io/nozzle) native library as shared library
+The uncomfortable truth: this repository is UPM-shaped, but it is **not** a reliable installable Unity runtime integration yet. The current runtime path is direct C# `DllImport("nozzle")` from MonoBehaviours. It does not include a Unity native bridge, render-thread event scheduling, graphics-device lifecycle handling, bundled native binaries, or Unity Editor/Player validation.
 
 ## Installation
 
-### From Git URL (Unity Package Manager)
+Use Unity Package Manager with the package-path Git URL:
 
-1. Open Unity Package Manager (Window > Package Manager)
-2. Click "+" > "Add package from git URL..."
-3. Enter: `https://github.com/nozzle-io/nozzle.unity.git`
-
-### Manual
-
-1. Clone this repository recursively: `git clone --recursive https://github.com/nozzle-io/nozzle.unity.git`
-2. Build the nozzle native library
-3. Place the built library in your Unity project's `Assets/Plugins/Nozzle/`
-
-## Building the Native Library
-
-```bash
-git clone --recursive https://github.com/nozzle-io/nozzle.unity.git
-cd nozzle.unity/nozzle
-cmake -B build -DBUILD_SHARED_LIBS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
-cmake --build build --config Release
+```text
+https://github.com/nozzle-io/nozzle.unity.git?path=/Packages/org.nozzle-io.unity
 ```
 
-Place `libnozzle.dylib` (macOS) or `nozzle.dll` (Windows) in your Unity project under `Assets/Plugins/Nozzle/`. Unity resolves `DllImport("nozzle")` against these files.
+Do not use the repository root URL; the package manifest is under `Packages/org.nozzle-io.unity/package.json`.
 
-## Usage
+## Current status
 
-### Sending Textures
+It does not bundle native binaries or a Unity native plugin, and it has no Unity Editor/Player runtime support claim.
 
-1. Add a `NozzleSender` component to any GameObject
-2. Set the sender name (used by receivers to find this sender)
-3. Assign a `Texture` (Texture2D or RenderTexture) as the source
-4. The texture is published every frame via GPU copy while the component is enabled
 
-### Receiving Textures
+- Package manifest and runtime C# bindings exist.
+- `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` are experimental direct C ABI components.
+- The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a `nozzle_unity` bridge plugin.
+- No Unity Editor or Player runtime support is claimed.
+- No macOS Metal or Windows D3D11 Unity runtime smoke evidence is present.
 
-1. Add a `NozzleReceiver` component to any GameObject
-2. Set the sender name to connect to
-3. A `RenderTexture` is automatically created and updated each frame via GPU copy
-4. Read `LastFrameInfo` for metadata (resolution, frame index, timestamp)
+## Experimental local native-library path
 
-### Discovery
+If you want to experiment anyway, build nozzle as a shared library and make Unity resolve `DllImport("nozzle")` from your project. A common local experiment is placing the native library under a Unity project plugin folder, but that is not a supported package install flow and does not fix render-thread/device-lifecycle correctness.
 
-1. Add a `NozzleDiscovery` component to any GameObject
-2. Call `Refresh()` to enumerate available senders
-3. Access `AvailableSenders` for the list of sender info
+## Architecture gap
 
-### Scripting Example
+Current implementation:
 
-```csharp
-// Receive a texture and apply it to a material
-var receiver = gameObject.AddComponent<Nozzle.NozzleReceiver>();
-receiver.senderName = "MyOFApp";
-
-// Later, in Update or a coroutine:
-if (receiver.IsConnected && receiver.TargetTexture != null)
-{
-    GetComponent<Renderer>().material.mainTexture = receiver.TargetTexture;
-}
+```text
+Unity C# MonoBehaviours -> P/Invoke -> nozzle C ABI
 ```
 
-## Architecture
+Required implementation before real support claims:
 
-```
-Unity C# (MonoBehaviour)  ←→  P/Invoke  ←→  nozzle (C ABI — libnozzle)
+```text
+Unity C# Runtime API
+  -> nozzle_unity native plugin
+  -> UnityPluginLoad / UnityPluginUnload
+  -> IUnityGraphics device events
+  -> GL.IssuePluginEvent or CommandBuffer.IssuePluginEvent render-thread callbacks
+  -> nozzle core C/C++ API
 ```
 
-The C# plugin calls nozzle's C ABI (`nozzle_c.h`) directly. Native texture pointers (`MTLTexture*` / `ID3D11Texture2D*`) from Unity's `Texture.GetNativeTexturePtr()` are passed to `nozzle_sender_publish_native_texture` and `nozzle_frame_copy_to_native_texture` for GPU-side texture copy. No intermediate C++ bridge layer.
+See `Packages/org.nozzle-io.unity/Documentation~/` for the current support matrix and troubleshooting notes.
 
 ## License
 
-MIT
-
-Third-party dependencies:
-
-- [nozzle](https://github.com/nozzle-io/nozzle) — MIT
+MIT. See `LICENSE` and `Packages/org.nozzle-io.unity/Third Party Notices.md`.

@@ -3,8 +3,16 @@
   "displayName": "Nozzle Texture Sharing",
   "version": "0.1.0",
   "unity": "2021.3",
-  "description": "GPU texture sharing between Unity and other applications via nozzle. Send or receive textures to/from nozzle-compatible applications (openFrameworks, Max, etc.) on macOS and Windows.",
-  "keywords": ["texture", "sharing", "syphon", "spout", "nozzle", "gpu", "interop"],
+  "description": "Experimental Unity Package Manager wrapper for nozzle GPU texture sharing. Current runtime uses a direct C ABI path and requires externally supplied native nozzle binaries; production Unity Editor/Player runtime support is not yet claimed.",
+  "keywords": [
+    "texture",
+    "sharing",
+    "syphon",
+    "spout",
+    "nozzle",
+    "gpu",
+    "interop"
+  ],
   "author": {
     "name": "nozzle",
     "url": "https://github.com/nozzle-io/nozzle.unity"
@@ -13,5 +21,22 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/nozzle-io/nozzle.unity.git"
-  }
+  },
+  "samples": [
+    {
+      "displayName": "Sender Sample (stub)",
+      "description": "Placeholder for a sender sample scene; blocked until the native Unity bridge and bundled plugin import settings exist.",
+      "path": "Samples~/SenderSample"
+    },
+    {
+      "displayName": "Receiver Sample (stub)",
+      "description": "Placeholder for a receiver sample scene; blocked until the native Unity bridge and bundled plugin import settings exist.",
+      "path": "Samples~/ReceiverSample"
+    },
+    {
+      "displayName": "Discovery Diagnostics (stub)",
+      "description": "Placeholder for discovery diagnostics; documents the current direct C ABI limitations.",
+      "path": "Samples~/DiscoveryDiagnostics"
+    }
+  ]
 }

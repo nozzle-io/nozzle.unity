@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = ROOT / "Packages" / "org.nozzle-io.unity"
 RUNTIME_ROOT = PACKAGE_ROOT / "Runtime"
+DOCUMENTATION_ROOT = PACKAGE_ROOT / "Documentation~"
+SAMPLES_ROOT = PACKAGE_ROOT / "Samples~"
 
 
 def fail(message: str) -> None:
@@ -25,6 +27,16 @@ def fail(message: str) -> None:
 def require_file(path: Path) -> None:
     if not path.is_file():
         fail(f"required file is missing: {path.relative_to(ROOT)}")
+
+
+def require_dir(path: Path) -> None:
+    if not path.is_dir():
+        fail(f"required directory is missing: {path.relative_to(ROOT)}")
+
+
+def require_meta(path: Path) -> None:
+    meta = Path(f"{path}.meta")
+    require_file(meta)
 
 
 def load_json(path: Path) -> dict:
@@ -69,6 +81,18 @@ def check_package_manifest() -> None:
     if not isinstance(repository_url, str) or "nozzle-io/nozzle.unity" not in repository_url:
         fail("package repository.url must reference nozzle-io/nozzle.unity")
 
+    samples = manifest.get("samples")
+    if not isinstance(samples, list) or len(samples) < 3:
+        fail("package samples must list the current UPM sample stubs")
+    sample_paths = {sample.get("path") for sample in samples if isinstance(sample, dict)}
+    expected_sample_paths = {
+        "Samples~/SenderSample",
+        "Samples~/ReceiverSample",
+        "Samples~/DiscoveryDiagnostics",
+    }
+    if sample_paths != expected_sample_paths:
+        fail(f"package samples paths must be {sorted(expected_sample_paths)!r}, got {sorted(sample_paths)!r}")
+
 
 def check_asmdef() -> None:
     asmdef = load_json(RUNTIME_ROOT / "Nozzle.Unity.asmdef")
@@ -83,6 +107,7 @@ def check_runtime_sources() -> None:
         RUNTIME_ROOT / "NozzleSender.cs",
         RUNTIME_ROOT / "NozzleReceiver.cs",
         RUNTIME_ROOT / "NozzleDiscovery.cs",
+        RUNTIME_ROOT / "NozzleRuntimeSupport.cs",
         RUNTIME_ROOT / "Native" / "NozzleNative.cs",
     ]
     for path in required_runtime_files:
@@ -116,6 +141,98 @@ def check_runtime_sources() -> None:
     if not any(symbol in native_text for symbol in publish_symbols):
         fail("NozzleNative.cs must contain a native texture publish API symbol")
 
+    check_connected_sender_info_layout(native_text)
+
+    support = RUNTIME_ROOT / "NozzleRuntimeSupport.cs"
+    require_text(support, "BundledNativePlugin = false")
+    require_text(support, "UnityNativeBridge = false")
+    require_text(support, "Experimental direct C ABI path")
+
+
+def check_connected_sender_info_layout(native_text: str) -> None:
+    struct_start = native_text.find("public struct ConnectedSenderInfo")
+    if struct_start < 0:
+        fail("NozzleNative.cs must define ConnectedSenderInfo")
+    struct_end = native_text.find("public struct FrameInfo", struct_start)
+    if struct_end < 0:
+        fail("NozzleNative.cs must define FrameInfo after ConnectedSenderInfo")
+
+    struct_text = native_text[struct_start:struct_end]
+    expected_order = [
+        "Name",
+        "ApplicationName",
+        "Id",
+        "Backend",
+        "Width",
+        "Height",
+        "Format",
+        "SemanticFormat",
+        "EstimatedFps",
+        "FrameCounter",
+        "LastUpdateTimeNs",
+        "NativeFormatKind",
+        "NativeFormatValue",
+        "NativeFormatModifier",
+    ]
+    positions = []
+    for field in expected_order:
+        pos = struct_text.find(field)
+        if pos < 0:
+            fail(f"ConnectedSenderInfo is missing field {field}; check against nozzle_c.h")
+        positions.append(pos)
+    if positions != sorted(positions):
+        fail("ConnectedSenderInfo field order is stale; check against nozzle_c.h")
+
+
+def check_docs_and_samples() -> None:
+    root_readme = ROOT / "README.md"
+    package_readme = PACKAGE_ROOT / "README.md"
+    for path in [root_readme, package_readme]:
+        require_text(path, "?path=/Packages/org.nozzle-io.unity", "package-path Git URL")
+        require_text(path, "experimental direct C ABI", "experimental direct C ABI warning")
+        require_text(path, "does not bundle", "no bundled native plugin warning")
+        require_text(path, "no Unity Editor/Player runtime support", "runtime support limitation")
+
+    require_text(PACKAGE_ROOT / "CHANGELOG.md", "No bundled native plugin")
+    require_file(PACKAGE_ROOT / "LICENSE.md")
+    require_file(PACKAGE_ROOT / "Third Party Notices.md")
+
+    required_docs = [
+        DOCUMENTATION_ROOT / "supported-platforms.md",
+        DOCUMENTATION_ROOT / "graphics-api-support.md",
+        DOCUMENTATION_ROOT / "troubleshooting.md",
+    ]
+    require_dir(DOCUMENTATION_ROOT)
+    require_meta(DOCUMENTATION_ROOT)
+    for path in required_docs:
+        require_file(path)
+        require_meta(path)
+        require_text(path, "native", "native runtime limitation")
+
+    required_sample_readmes = [
+        SAMPLES_ROOT / "SenderSample" / "README.md",
+        SAMPLES_ROOT / "ReceiverSample" / "README.md",
+        SAMPLES_ROOT / "DiscoveryDiagnostics" / "README.md",
+    ]
+    require_dir(SAMPLES_ROOT)
+    require_meta(SAMPLES_ROOT)
+    for path in required_sample_readmes:
+        require_file(path)
+        require_meta(path)
+        require_text(path, "stub")
+
+    plugins_root = RUNTIME_ROOT / "Plugins"
+    native_plugins = []
+    if plugins_root.exists():
+        native_plugins = [
+            path
+            for path in plugins_root.rglob("*")
+            if path.suffix.lower() in {".dll", ".dylib", ".bundle", ".so"}
+        ]
+    if not native_plugins:
+        require_text(package_readme, "No bundled native plugin")
+        require_text(DOCUMENTATION_ROOT / "troubleshooting.md", "DllNotFoundException")
+
 
 def check_submodules() -> None:
     result = subprocess.run(
@@ -146,6 +263,7 @@ def main() -> None:
     check_package_manifest()
     check_asmdef()
     check_runtime_sources()
+    check_docs_and_samples()
     check_submodules()
     print("Project sanity checks passed.")
 

@@ -14,15 +14,29 @@ namespace Nozzle
         internal const uint FALLBACK_SAFE_DEFAULTS = FALLBACK_STORAGE_COMPATIBLE | FALLBACK_CHANNEL_EXPANSION;
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleSender;
+        public struct NozzleSender
+        {
+        }
+
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleReceiver;
+        public struct NozzleReceiver
+        {
+        }
+
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleFrame;
+        public struct NozzleFrame
+        {
+        }
+
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleTexture;
+        public struct NozzleTexture
+        {
+        }
+
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleDevice;
+        public struct NozzleDevice
+        {
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct SenderDesc
@@ -72,6 +86,8 @@ namespace Nozzle
             public double EstimatedFps;
             public ulong FrameCounter;
             public ulong LastUpdateTimeNs;
+            public int NativeFormatKind;
+            public uint NativeFormatValue;
             public ulong NativeFormatModifier;
         }
 

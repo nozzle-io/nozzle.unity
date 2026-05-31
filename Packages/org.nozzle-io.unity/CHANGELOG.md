@@ -2,10 +2,9 @@
 
 ## 0.1.0
 
-Initial release.
+Initial package-shape release.
 
-- NozzleSender component: send Unity textures to nozzle-compatible applications
-- NozzleReceiver component: receive textures from nozzle senders
-- NozzleDiscovery component: enumerate available senders
-- Native plugin bridge (C API with handle-based access)
-- macOS (Metal/IOSurface) and Windows (D3D11) support
+- Added experimental direct C ABI components: `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery`.
+- Added UPM manifest under `Packages/org.nozzle-io.unity`.
+- Added documentation and sample stubs that explicitly mark Unity runtime support as unverified.
+- No bundled native plugin, native bridge, Unity Editor validation, or Player validation is included in this release.

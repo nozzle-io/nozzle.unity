@@ -32,6 +32,8 @@ namespace Nozzle
 
             if (initialized) return;
 
+            NozzleRuntimeSupport.WarnExperimentalRuntime(nameof(NozzleReceiver));
+
             string appName = string.IsNullOrEmpty(applicationName)
                 ? Application.productName
                 : applicationName;
@@ -49,10 +51,23 @@ namespace Nozzle
                     ReceiveMode = 0,
                 };
 
-                int ec = NozzleNative.nozzle_receiver_create(&desc, &handle);
-                if (ec != 0)
+                try
                 {
-                    Debug.LogError($"[Nozzle] Failed to create receiver: error {ec}");
+                    int ec = NozzleNative.nozzle_receiver_create(&desc, &handle);
+                    if (ec != 0)
+                    {
+                        Debug.LogError($"[Nozzle] Failed to create receiver: error {ec}");
+                        return;
+                    }
+                }
+                catch (DllNotFoundException exception)
+                {
+                    NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+                    return;
+                }
+                catch (EntryPointNotFoundException exception)
+                {
+                    NozzleRuntimeSupport.LogNativeLoadFailure(exception);
                     return;
                 }
             }
@@ -77,7 +92,23 @@ namespace Nozzle
             var acquireDesc = new NozzleNative.AcquireDesc { TimeoutMs = timeoutMs };
             NozzleNative.NozzleFrame* frame;
 
-            int ec = NozzleNative.nozzle_receiver_acquire_frame(handle, &acquireDesc, &frame);
+            int ec;
+            try
+            {
+                ec = NozzleNative.nozzle_receiver_acquire_frame(handle, &acquireDesc, &frame);
+            }
+            catch (DllNotFoundException exception)
+            {
+                connected = false;
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+                return;
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                connected = false;
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+                return;
+            }
 
             if (ec == (int)NozzleErrorCode.Timeout)
             {
