@@ -2,7 +2,7 @@
 
 Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle).
 
-This package is **not** a production-ready Unity runtime integration yet. The current C# components call the nozzle C ABI directly via `DllImport("nozzle")`; there is no bundled Unity native bridge plugin, no render-thread callback integration, and no verified Unity Editor/Player runtime support.
+This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The package ships bridge source and diagnostics, but no compiled native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player runtime evidence.
 
 ## Install
 
@@ -12,36 +12,54 @@ Use the package-path Git URL because `package.json` lives under `Packages/org.no
 https://github.com/nozzle-io/nozzle.unity.git?path=/Packages/org.nozzle-io.unity
 ```
 
-Installing the UPM package only installs the C# package files. It does **not** install `libnozzle.dylib`, `nozzle.dll`, or a `nozzle_unity` bridge plugin.
+Installing the UPM package only installs package files. It does **not** install `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
 
 ## Current components
 
-The current direct path is experimental direct C ABI and exists only as bounded scaffolding.
-
 | Component | Current status |
 |-----------|----------------|
-| `NozzleSender` | Experimental direct C ABI path. Calls nozzle from `Update()` with `Texture.GetNativeTexturePtr()`. |
-| `NozzleReceiver` | Experimental direct C ABI path. Calls nozzle from `Update()` and copies into a `RenderTexture` pointer. |
-| `NozzleDiscovery` | Experimental direct C ABI path for sender enumeration. |
+| `NozzleSender` | Routes through `nozzle_unity` bridge diagnostics; refuses support when the bridge reports unsupported. |
+| `NozzleReceiver` | Routes through `nozzle_unity` bridge diagnostics; no validated render-thread copy path yet. |
+| `NozzleDiscovery` | Routes through `nozzle_unity` bridge diagnostics; no supported runtime enumeration claim yet. |
+| `Native~/` | Source-only bridge ABI with a CI stub fallback and an opt-in Unity-header lifecycle scaffold. |
 
 ## Runtime limitations
 
-It does not bundle native binaries or a Unity native plugin, and it has no Unity Editor/Player runtime support claim.
+It does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
 
-
-- No bundled native plugin or native binary import settings are present under `Runtime/Plugins`.
-- No `UnityPluginLoad`, `IUnityGraphics`, `GL.IssuePluginEvent`, or `CommandBuffer.IssuePluginEvent` bridge exists in this package.
-- Metal and D3D11 may be the intended future targets, but Editor and Player runtime behavior is currently unverified.
+- No compiled native plugin or native binary import settings are present under `Runtime/Plugins`.
+- The default bridge build compiles without Unity headers and intentionally reports `runtime_supported = 0`.
+- The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none.
+- Sender, receiver, and discovery bridge operations are not wired to nozzle core yet.
+- Metal and D3D11 are intended future targets, but Editor and Player runtime behavior is currently unverified.
 - OpenGL, Vulkan, Linux, mobile, and console runtime support are unsupported until proven by Unity runtime tests.
-- If you manually provide a nozzle shared library for experiments, Unity must be able to resolve `DllImport("nozzle")`. That is a local experiment path, not a supported install flow.
+
+## Native bridge build scaffold
+
+CI-safe ABI build:
+
+```sh
+cmake -S . -B build/nozzle_unity_stub -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF
+cmake --build build/nozzle_unity_stub --target nozzle_unity
+```
+
+Unity-header lifecycle build path:
+
+```sh
+cmake -S . -B build/nozzle_unity_unity \
+  -DNOZZLE_UNITY_USE_UNITY_HEADERS=ON \
+  -DNOZZLE_UNITY_PLUGIN_API_DIR=/path/to/Unity/NativePluginAPI
+cmake --build build/nozzle_unity_unity --target nozzle_unity
+```
 
 ## Required architecture before support claims
 
 ```text
 Unity C# Runtime API
-  -> Unity native bridge plugin (nozzle_unity)
+  -> compiled Unity native bridge plugin (nozzle_unity)
   -> Unity render-thread/device lifecycle callbacks
   -> nozzle core C/C++ API
+  -> Unity Editor and Player smoke evidence
 ```
 
-Until that bridge and its CI/runtime evidence exist, treat this package as package-shape scaffolding plus experimental bindings.
+Until that implementation and evidence exist, treat this package as package-shape scaffolding, bridge ABI scaffolding, and diagnostics.

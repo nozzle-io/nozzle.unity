@@ -2,7 +2,7 @@
 
 Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle) GPU texture sharing.
 
-The uncomfortable truth: this repository is UPM-shaped, but it is **not** a reliable installable Unity runtime integration yet. The current runtime path is direct C# `DllImport("nozzle")` from MonoBehaviours. It does not include a Unity native bridge, render-thread event scheduling, graphics-device lifecycle handling, bundled native binaries, or Unity Editor/Player validation.
+The uncomfortable truth: this repository is UPM-shaped and now has a source-level `nozzle_unity` native bridge ABI, but it is **not** a reliable installable Unity runtime integration yet. The C# runtime no longer treats direct `DllImport("nozzle")` calls as the final path; it expects a `nozzle_unity` bridge plugin and refuses to claim runtime support when that bridge reports unsupported diagnostics.
 
 ## Installation
 
@@ -16,36 +16,55 @@ Do not use the repository root URL; the package manifest is under `Packages/org.
 
 ## Current status
 
-It does not bundle native binaries or a Unity native plugin, and it has no Unity Editor/Player runtime support claim.
+It does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
 
-
-- Package manifest and runtime C# bindings exist.
-- `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` are experimental direct C ABI components.
-- The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a `nozzle_unity` bridge plugin.
+- Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
+- `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
+- The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
+- The default native bridge build is a CI stub that compiles without Unity headers and reports runtime support as disabled.
 - No Unity Editor or Player runtime support is claimed.
 - No macOS Metal or Windows D3D11 Unity runtime smoke evidence is present.
 
-## Experimental local native-library path
+## Native bridge build scaffold
 
-If you want to experiment anyway, build nozzle as a shared library and make Unity resolve `DllImport("nozzle")` from your project. A common local experiment is placing the native library under a Unity project plugin folder, but that is not a supported package install flow and does not fix render-thread/device-lifecycle correctness.
+The CI-safe bridge build checks ABI/export shape only:
 
-## Architecture gap
+```sh
+cmake -S . -B build/nozzle_unity_stub -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF
+cmake --build build/nozzle_unity_stub --target nozzle_unity
+```
 
-Current implementation:
+A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
+
+```sh
+cmake -S . -B build/nozzle_unity_unity \
+  -DNOZZLE_UNITY_USE_UNITY_HEADERS=ON \
+  -DNOZZLE_UNITY_PLUGIN_API_DIR=/path/to/Unity/NativePluginAPI
+cmake --build build/nozzle_unity_unity --target nozzle_unity
+```
+
+This repository vendors/downloads no Unity headers. The Unity-header bridge source contains lifecycle and render-event entry points, but sender/receiver/discovery implementation remains blocked until it is wired to nozzle core and validated in Unity.
+
+## Architecture
+
+Current bounded scaffold:
 
 ```text
-Unity C# MonoBehaviours -> P/Invoke -> nozzle C ABI
+Unity C# MonoBehaviours
+  -> P/Invoke -> nozzle_unity bridge diagnostics/ABI
+  -> CI stub fallback or Unity-header lifecycle scaffold
 ```
 
 Required implementation before real support claims:
 
 ```text
 Unity C# Runtime API
-  -> nozzle_unity native plugin
+  -> compiled nozzle_unity native plugin bundled with import settings
   -> UnityPluginLoad / UnityPluginUnload
   -> IUnityGraphics device events
   -> GL.IssuePluginEvent or CommandBuffer.IssuePluginEvent render-thread callbacks
   -> nozzle core C/C++ API
+  -> Editor and Player smoke evidence on target graphics APIs
 ```
 
 See `Packages/org.nozzle-io.unity/Documentation~/` for the current support matrix and troubleshooting notes.

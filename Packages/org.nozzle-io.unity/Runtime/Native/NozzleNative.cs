@@ -5,13 +5,11 @@ namespace Nozzle
 {
     internal static unsafe class NozzleNative
     {
-        const string LIBRARY = "nozzle";
+        const string LIBRARY = "nozzle_unity";
 
-        internal const uint FALLBACK_NONE = 0;
-        internal const uint FALLBACK_STORAGE_COMPATIBLE = 1u << 0;
-        internal const uint FALLBACK_CHANNEL_EXPANSION = 1u << 1;
-        internal const uint FALLBACK_QUALITY_LOSS = 1u << 2;
-        internal const uint FALLBACK_SAFE_DEFAULTS = FALLBACK_STORAGE_COMPATIBLE | FALLBACK_CHANNEL_EXPANSION;
+        internal const uint BRIDGE_ABI_VERSION = 1;
+        internal const int STATUS_OK = 0;
+        internal const int STATUS_UNSUPPORTED = 3;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct NozzleSender
@@ -29,13 +27,16 @@ namespace Nozzle
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleTexture
+        public struct SupportInfo
         {
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct NozzleDevice
-        {
+            public uint AbiVersion;
+            public uint BridgeBinaryLoaded;
+            public uint RuntimeSupported;
+            public uint UnityHeadersCompiled;
+            public uint UnityGraphicsDeviceAvailable;
+            public uint RenderThreadEventsAvailable;
+            public uint DirectNozzleCAbiAvailable;
+            public fixed byte StatusMessage[256];
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -44,9 +45,7 @@ namespace Nozzle
             public byte* Name;
             public byte* ApplicationName;
             public uint RingBufferSize;
-            public int AllowFormatFallback;
-            public uint FallbackFlags;
-            public int FallbackFlagsValid;
+            public int TextureFormat;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -73,22 +72,10 @@ namespace Nozzle
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct ConnectedSenderInfo
+        public struct SenderInfoArray
         {
-            public byte* Name;
-            public byte* ApplicationName;
-            public byte* Id;
-            public int Backend;
-            public uint Width;
-            public uint Height;
-            public int Format;
-            public int SemanticFormat;
-            public double EstimatedFps;
-            public ulong FrameCounter;
-            public ulong LastUpdateTimeNs;
-            public int NativeFormatKind;
-            public uint NativeFormatValue;
-            public ulong NativeFormatModifier;
+            public SenderInfo* Items;
+            public uint Count;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -98,78 +85,53 @@ namespace Nozzle
             public ulong TimestampNs;
             public uint Width;
             public uint Height;
-            public int Format;
+            public int TextureFormat;
             public int SemanticFormat;
             public int TransferMode;
             public int SyncMode;
             public uint DroppedFrameCount;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SenderInfoArray
-        {
-            public SenderInfo* Items;
-            public uint Count;
-        }
+        [DllImport(LIBRARY)]
+        public static extern int nozzle_unity_get_support(SupportInfo* out_support);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_create(SenderDesc* desc, NozzleSender** out_sender);
+        public static extern IntPtr nozzle_unity_get_render_event_func();
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_sender_destroy(NozzleSender* sender);
+        public static extern int nozzle_unity_sender_create(SenderDesc* desc, NozzleSender** out_sender);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_publish_native_texture(
-            NozzleSender* sender, void* native_texture, uint width, uint height, int format);
+        public static extern void nozzle_unity_sender_destroy(NozzleSender* sender);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_publish_native_texture_ex(
-            NozzleSender* sender, void* native_texture, uint width, uint height, int storage_format, int semantic_format);
+        public static extern int nozzle_unity_sender_publish_native_texture(
+            NozzleSender* sender, void* native_texture, uint width, uint height, int texture_format);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_acquire_writable_frame(
-            NozzleSender* sender, uint width, uint height, int format, NozzleFrame** out_frame);
+        public static extern int nozzle_unity_receiver_create(ReceiverDesc* desc, NozzleReceiver** out_receiver);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_commit_frame(NozzleSender* sender, NozzleFrame* frame);
+        public static extern void nozzle_unity_receiver_destroy(NozzleReceiver* receiver);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_sender_get_info(NozzleSender* sender, SenderInfo* out_info);
-
-        [DllImport(LIBRARY)]
-        public static extern int nozzle_receiver_create(ReceiverDesc* desc, NozzleReceiver** out_receiver);
-
-        [DllImport(LIBRARY)]
-        public static extern void nozzle_receiver_destroy(NozzleReceiver* receiver);
-
-        [DllImport(LIBRARY)]
-        public static extern int nozzle_receiver_acquire_frame(
+        public static extern int nozzle_unity_receiver_acquire_frame(
             NozzleReceiver* receiver, AcquireDesc* desc, NozzleFrame** out_frame);
 
         [DllImport(LIBRARY)]
-        public static extern void nozzle_frame_release(NozzleFrame* frame);
+        public static extern void nozzle_unity_frame_release(NozzleFrame* frame);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_frame_get_info(NozzleFrame* frame, FrameInfo* out_info);
+        public static extern int nozzle_unity_frame_get_info(NozzleFrame* frame, FrameInfo* out_info);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_frame_copy_to_native_texture(
-            NozzleFrame* frame, void* native_texture, uint width, uint height, int format);
+        public static extern int nozzle_unity_frame_copy_to_native_texture(
+            NozzleFrame* frame, void* native_texture, uint width, uint height, int texture_format);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_receiver_get_connected_info(
-            NozzleReceiver* receiver, ConnectedSenderInfo* out_info);
+        public static extern int nozzle_unity_discovery_enumerate_senders(SenderInfoArray* out_array);
 
         [DllImport(LIBRARY)]
-        public static extern int nozzle_enumerate_senders(SenderInfoArray* out_array);
-
-        [DllImport(LIBRARY)]
-        public static extern void nozzle_free_sender_info_array(SenderInfoArray* array);
-
-        [DllImport(LIBRARY)]
-        public static extern int nozzle_device_get_default(NozzleDevice** out_device);
-
-        [DllImport(LIBRARY)]
-        public static extern void nozzle_device_destroy(NozzleDevice* device);
+        public static extern void nozzle_unity_discovery_free_sender_info_array(SenderInfoArray* array);
     }
 }

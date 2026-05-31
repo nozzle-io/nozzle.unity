@@ -13,7 +13,11 @@ namespace Nozzle
 
         public void Refresh()
         {
-            NozzleRuntimeSupport.WarnExperimentalRuntime(nameof(NozzleDiscovery));
+            if (!NozzleRuntimeSupport.RequireBridgeRuntime(nameof(NozzleDiscovery)))
+            {
+                AvailableSenders.Clear();
+                return;
+            }
 
             AvailableSenders.Clear();
 
@@ -21,7 +25,7 @@ namespace Nozzle
             int ec;
             try
             {
-                ec = NozzleNative.nozzle_enumerate_senders(&array);
+                ec = NozzleNative.nozzle_unity_discovery_enumerate_senders(&array);
             }
             catch (DllNotFoundException exception)
             {
@@ -34,9 +38,11 @@ namespace Nozzle
                 return;
             }
 
+            if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "discovery enumerate_senders")) return;
+
             if (ec != 0)
             {
-                Debug.LogError($"[Nozzle] Enumerate senders failed: {ec}");
+                Debug.LogError($"[Nozzle] Bridge enumerate senders failed: {ec}");
                 return;
             }
 
@@ -53,7 +59,7 @@ namespace Nozzle
                 });
             }
 
-            NozzleNative.nozzle_free_sender_info_array(&array);
+            NozzleNative.nozzle_unity_discovery_free_sender_info_array(&array);
             AvailableSenders = results;
         }
 

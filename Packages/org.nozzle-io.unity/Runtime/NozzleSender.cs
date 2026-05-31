@@ -20,7 +20,7 @@ namespace Nozzle
         {
             if (initialized) return;
 
-            NozzleRuntimeSupport.WarnExperimentalRuntime(nameof(NozzleSender));
+            if (!NozzleRuntimeSupport.RequireBridgeRuntime(nameof(NozzleSender))) return;
 
             string appName = string.IsNullOrEmpty(applicationName)
                 ? Application.productName
@@ -37,17 +37,17 @@ namespace Nozzle
                     Name = pName,
                     ApplicationName = pApp,
                     RingBufferSize = ringBufferSize,
-                    AllowFormatFallback = 0,
-                    FallbackFlags = NozzleNative.FALLBACK_SAFE_DEFAULTS,
-                    FallbackFlagsValid = 1,
+                    TextureFormat = (int)format,
                 };
 
                 try
                 {
-                    int ec = NozzleNative.nozzle_sender_create(&desc, &handle);
+                    int ec = NozzleNative.nozzle_unity_sender_create(&desc, &handle);
+                    if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "sender create")) return;
+
                     if (ec != 0)
                     {
-                        Debug.LogError($"[Nozzle] Failed to create sender: error {ec}");
+                        Debug.LogError($"[Nozzle] Failed to create sender through nozzle_unity bridge: error {ec}");
                         return;
                     }
                 }
@@ -70,7 +70,7 @@ namespace Nozzle
         {
             if (!initialized) return;
 
-            NozzleNative.nozzle_sender_destroy(handle);
+            NozzleNative.nozzle_unity_sender_destroy(handle);
             handle = null;
             initialized = false;
         }
@@ -85,13 +85,15 @@ namespace Nozzle
 
             try
             {
-                int ec = NozzleNative.nozzle_sender_publish_native_texture(
+                int ec = NozzleNative.nozzle_unity_sender_publish_native_texture(
                     handle, (void*)nativePtr, (uint)w, (uint)h, (int)format
                 );
 
+                if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "sender publish_native_texture")) return;
+
                 if (ec != 0)
                 {
-                    Debug.LogError($"[Nozzle] publish_native_texture failed: error {ec}");
+                    Debug.LogError($"[Nozzle] bridge publish_native_texture failed: error {ec}");
                 }
             }
             catch (DllNotFoundException exception)

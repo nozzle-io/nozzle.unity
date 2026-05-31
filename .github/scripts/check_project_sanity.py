@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = ROOT / "Packages" / "org.nozzle-io.unity"
 RUNTIME_ROOT = PACKAGE_ROOT / "Runtime"
+NATIVE_SOURCE_ROOT = PACKAGE_ROOT / "Native~"
 DOCUMENTATION_ROOT = PACKAGE_ROOT / "Documentation~"
 SAMPLES_ROOT = PACKAGE_ROOT / "Samples~"
 
@@ -121,67 +122,53 @@ def check_runtime_sources() -> None:
         require_text(path, "namespace Nozzle")
 
     native = RUNTIME_ROOT / "Native" / "NozzleNative.cs"
-    require_text(native, 'const string LIBRARY = "nozzle"')
+    native_text = native.read_text(encoding="utf-8")
+    require_text(native, 'const string LIBRARY = "nozzle_unity"')
     require_text(native, "[DllImport(LIBRARY)]")
+    if 'const string LIBRARY = "nozzle"' in native_text:
+        fail("NozzleNative.cs must not bind directly to DllImport(\"nozzle\")")
 
-    required_symbols = [
+    forbidden_direct_symbols = [
         "nozzle_sender_create",
         "nozzle_receiver_create",
         "nozzle_frame_get_info",
         "nozzle_frame_copy_to_native_texture",
+        "nozzle_enumerate_senders",
     ]
-    for symbol in required_symbols:
-        require_text(native, symbol, f"native symbol {symbol}")
+    for symbol in forbidden_direct_symbols:
+        if symbol in native_text and f"nozzle_unity_{symbol.removeprefix('nozzle_')}" not in native_text:
+            fail(f"NozzleNative.cs must route through nozzle_unity bridge, found stale direct symbol {symbol}")
 
-    native_text = native.read_text(encoding="utf-8")
-    publish_symbols = [
-        "nozzle_sender_publish_native_texture",
-        "nozzle_sender_publish_native_texture_ex",
+    required_bridge_symbols = [
+        "nozzle_unity_get_support",
+        "nozzle_unity_get_render_event_func",
+        "nozzle_unity_sender_create",
+        "nozzle_unity_sender_publish_native_texture",
+        "nozzle_unity_receiver_create",
+        "nozzle_unity_receiver_acquire_frame",
+        "nozzle_unity_frame_get_info",
+        "nozzle_unity_frame_copy_to_native_texture",
+        "nozzle_unity_discovery_enumerate_senders",
     ]
-    if not any(symbol in native_text for symbol in publish_symbols):
-        fail("NozzleNative.cs must contain a native texture publish API symbol")
-
-    check_connected_sender_info_layout(native_text)
+    for symbol in required_bridge_symbols:
+        require_text(native, symbol, f"bridge symbol {symbol}")
 
     support = RUNTIME_ROOT / "NozzleRuntimeSupport.cs"
     require_text(support, "BundledNativePlugin = false")
-    require_text(support, "UnityNativeBridge = false")
-    require_text(support, "Experimental direct C ABI path")
+    require_text(support, "UnityNativeBridgeSource = true")
+    require_text(support, "UnityRuntimeVerified = false")
+    require_text(support, "RequireBridgeRuntime")
+    require_text(support, "runtime support")
 
-
-def check_connected_sender_info_layout(native_text: str) -> None:
-    struct_start = native_text.find("public struct ConnectedSenderInfo")
-    if struct_start < 0:
-        fail("NozzleNative.cs must define ConnectedSenderInfo")
-    struct_end = native_text.find("public struct FrameInfo", struct_start)
-    if struct_end < 0:
-        fail("NozzleNative.cs must define FrameInfo after ConnectedSenderInfo")
-
-    struct_text = native_text[struct_start:struct_end]
-    expected_order = [
-        "Name",
-        "ApplicationName",
-        "Id",
-        "Backend",
-        "Width",
-        "Height",
-        "Format",
-        "SemanticFormat",
-        "EstimatedFps",
-        "FrameCounter",
-        "LastUpdateTimeNs",
-        "NativeFormatKind",
-        "NativeFormatValue",
-        "NativeFormatModifier",
-    ]
-    positions = []
-    for field in expected_order:
-        pos = struct_text.find(field)
-        if pos < 0:
-            fail(f"ConnectedSenderInfo is missing field {field}; check against nozzle_c.h")
-        positions.append(pos)
-    if positions != sorted(positions):
-        fail("ConnectedSenderInfo field order is stale; check against nozzle_c.h")
+    for component in [
+        RUNTIME_ROOT / "NozzleSender.cs",
+        RUNTIME_ROOT / "NozzleReceiver.cs",
+        RUNTIME_ROOT / "NozzleDiscovery.cs",
+    ]:
+        require_text(component, "RequireBridgeRuntime")
+        text = component.read_text(encoding="utf-8")
+        if "WarnExperimentalRuntime" in text:
+            fail(f"{component.relative_to(ROOT)} still uses stale direct-runtime warning path")
 
 
 def check_docs_and_samples() -> None:
@@ -189,11 +176,11 @@ def check_docs_and_samples() -> None:
     package_readme = PACKAGE_ROOT / "README.md"
     for path in [root_readme, package_readme]:
         require_text(path, "?path=/Packages/org.nozzle-io.unity", "package-path Git URL")
-        require_text(path, "experimental direct C ABI", "experimental direct C ABI warning")
+        require_text(path, "nozzle_unity", "bridge ABI wording")
         require_text(path, "does not bundle", "no bundled native plugin warning")
         require_text(path, "no Unity Editor/Player runtime support", "runtime support limitation")
 
-    require_text(PACKAGE_ROOT / "CHANGELOG.md", "No bundled native plugin")
+    require_text(PACKAGE_ROOT / "CHANGELOG.md", "nozzle_unity")
     require_file(PACKAGE_ROOT / "LICENSE.md")
     require_file(PACKAGE_ROOT / "Third Party Notices.md")
 
@@ -208,6 +195,7 @@ def check_docs_and_samples() -> None:
         require_file(path)
         require_meta(path)
         require_text(path, "native", "native runtime limitation")
+        require_text(path, "nozzle_unity", "bridge runtime limitation")
 
     required_sample_readmes = [
         SAMPLES_ROOT / "SenderSample" / "README.md",
@@ -230,8 +218,86 @@ def check_docs_and_samples() -> None:
             if path.suffix.lower() in {".dll", ".dylib", ".bundle", ".so"}
         ]
     if not native_plugins:
-        require_text(package_readme, "No bundled native plugin")
-        require_text(DOCUMENTATION_ROOT / "troubleshooting.md", "DllNotFoundException")
+        require_text(package_readme, "No compiled native plugin")
+        require_text(DOCUMENTATION_ROOT / "troubleshooting.md", "DllNotFoundException: nozzle_unity")
+
+
+def check_native_bridge_sources() -> None:
+    required_native_files = [
+        NATIVE_SOURCE_ROOT / "README.md",
+        NATIVE_SOURCE_ROOT / "include" / "nozzle_unity" / "nozzle_unity_bridge.h",
+        NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_common.cpp",
+        NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_stub.cpp",
+        NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_unity.cpp",
+        NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_environment.hpp",
+    ]
+    for path in required_native_files:
+        require_file(path)
+
+    header = NATIVE_SOURCE_ROOT / "include" / "nozzle_unity" / "nozzle_unity_bridge.h"
+    for symbol in [
+        "NOZZLE_UNITY_ABI_VERSION",
+        "nozzle_unity_get_support",
+        "nozzle_unity_get_render_event_func",
+        "nozzle_unity_sender_create",
+        "nozzle_unity_receiver_create",
+        "nozzle_unity_discovery_enumerate_senders",
+    ]:
+        require_text(header, symbol, f"bridge header export {symbol}")
+
+    unity_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_unity.cpp"
+    require_text(unity_source, "UnityPluginLoad")
+    require_text(unity_source, "UnityPluginUnload")
+    require_text(unity_source, "IUnityGraphics")
+
+    stub_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_stub.cpp"
+    require_text(stub_source, "built without Unity Native Plugin API headers")
+
+    cmake = ROOT / "CMakeLists.txt"
+    require_text(cmake, "NOZZLE_UNITY_USE_UNITY_HEADERS")
+    require_text(cmake, "NOZZLE_UNITY_PLUGIN_API_DIR")
+    require_text(cmake, "nozzle_unity_bridge_stub.cpp")
+    require_text(cmake, "nozzle_unity_bridge_unity.cpp")
+
+
+def check_native_bridge_stub_build() -> None:
+    build_dir = ROOT / "build" / "project-sanity-nozzle-unity-stub"
+    configure = subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(ROOT),
+            "-B",
+            str(build_dir),
+            "-DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if configure.stdout:
+        print(configure.stdout, end="")
+    if configure.stderr:
+        print(configure.stderr, end="", file=sys.stderr)
+    if configure.returncode != 0:
+        fail(f"cmake configure for nozzle_unity stub failed with exit code {configure.returncode}")
+
+    build = subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", "nozzle_unity"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if build.stdout:
+        print(build.stdout, end="")
+    if build.stderr:
+        print(build.stderr, end="", file=sys.stderr)
+    if build.returncode != 0:
+        fail(f"cmake build for nozzle_unity stub failed with exit code {build.returncode}")
 
 
 def check_submodules() -> None:
@@ -263,8 +329,10 @@ def main() -> None:
     check_package_manifest()
     check_asmdef()
     check_runtime_sources()
+    check_native_bridge_sources()
     check_docs_and_samples()
     check_submodules()
+    check_native_bridge_stub_build()
     print("Project sanity checks passed.")
 
 

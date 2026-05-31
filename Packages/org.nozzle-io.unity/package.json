@@ -3,7 +3,7 @@
   "displayName": "Nozzle Texture Sharing",
   "version": "0.1.0",
   "unity": "2021.3",
-  "description": "Experimental Unity Package Manager wrapper for nozzle GPU texture sharing. Current runtime uses a direct C ABI path and requires externally supplied native nozzle binaries; production Unity Editor/Player runtime support is not yet claimed.",
+  "description": "Experimental Unity Package Manager wrapper for nozzle GPU texture sharing. Current runtime targets a source-only nozzle_unity bridge ABI and requires externally supplied compiled native bridge binaries; production Unity Editor/Player runtime support is not claimed.",
   "keywords": [
     "texture",
     "sharing",

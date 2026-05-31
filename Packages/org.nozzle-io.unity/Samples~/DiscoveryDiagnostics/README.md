@@ -1,3 +1,3 @@
 # Discovery Diagnostics (stub)
 
-Placeholder only. Current discovery uses direct `DllImport("nozzle")` and requires an externally supplied native library.
+Placeholder only. Current discovery routes through `nozzle_unity` bridge diagnostics and reports no supported runtime enumeration until a compiled bridge is implemented and validated.

@@ -32,7 +32,7 @@ namespace Nozzle
 
             if (initialized) return;
 
-            NozzleRuntimeSupport.WarnExperimentalRuntime(nameof(NozzleReceiver));
+            if (!NozzleRuntimeSupport.RequireBridgeRuntime(nameof(NozzleReceiver))) return;
 
             string appName = string.IsNullOrEmpty(applicationName)
                 ? Application.productName
@@ -53,10 +53,12 @@ namespace Nozzle
 
                 try
                 {
-                    int ec = NozzleNative.nozzle_receiver_create(&desc, &handle);
+                    int ec = NozzleNative.nozzle_unity_receiver_create(&desc, &handle);
+                    if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "receiver create")) return;
+
                     if (ec != 0)
                     {
-                        Debug.LogError($"[Nozzle] Failed to create receiver: error {ec}");
+                        Debug.LogError($"[Nozzle] Failed to create receiver through nozzle_unity bridge: error {ec}");
                         return;
                     }
                 }
@@ -79,7 +81,7 @@ namespace Nozzle
         {
             if (!initialized) return;
 
-            NozzleNative.nozzle_receiver_destroy(handle);
+            NozzleNative.nozzle_unity_receiver_destroy(handle);
             handle = null;
             initialized = false;
             connected = false;
@@ -95,7 +97,7 @@ namespace Nozzle
             int ec;
             try
             {
-                ec = NozzleNative.nozzle_receiver_acquire_frame(handle, &acquireDesc, &frame);
+                ec = NozzleNative.nozzle_unity_receiver_acquire_frame(handle, &acquireDesc, &frame);
             }
             catch (DllNotFoundException exception)
             {
@@ -116,6 +118,12 @@ namespace Nozzle
                 return;
             }
 
+            if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "receiver acquire_frame"))
+            {
+                connected = false;
+                return;
+            }
+
             if (ec != 0)
             {
                 connected = false;
@@ -124,16 +132,16 @@ namespace Nozzle
                 {
                     return;
                 }
-                Debug.LogError($"[Nozzle] acquire_frame failed: error {ec}");
+                Debug.LogError($"[Nozzle] bridge acquire_frame failed: error {ec}");
                 return;
             }
 
             var info = new NozzleNative.FrameInfo();
-            ec = NozzleNative.nozzle_frame_get_info(frame, &info);
+            ec = NozzleNative.nozzle_unity_frame_get_info(frame, &info);
 
             if (ec != 0)
             {
-                NozzleNative.nozzle_frame_release(frame);
+                NozzleNative.nozzle_unity_frame_release(frame);
                 Debug.LogError($"[Nozzle] get_frame_info failed: error {ec}");
                 return;
             }
@@ -145,24 +153,24 @@ namespace Nozzle
                 TimestampNs = info.TimestampNs,
                 Width = info.Width,
                 Height = info.Height,
-                Format = (NozzleTextureFormat)info.Format,
+                Format = (NozzleTextureFormat)info.TextureFormat,
                 SemanticFormat = (NozzleTextureFormat)info.SemanticFormat,
                 TransferMode = (NozzleTransferMode)info.TransferMode,
                 SyncMode = (NozzleSyncMode)info.SyncMode,
                 DroppedFrameCount = info.DroppedFrameCount,
             };
 
-            EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.Format);
+            EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.TextureFormat);
 
             if (targetTexture != null)
             {
                 IntPtr nativePtr = targetTexture.GetNativeTexturePtr();
-                NozzleNative.nozzle_frame_copy_to_native_texture(
-                    frame, (void*)nativePtr, info.Width, info.Height, info.Format
+                NozzleNative.nozzle_unity_frame_copy_to_native_texture(
+                    frame, (void*)nativePtr, info.Width, info.Height, info.TextureFormat
                 );
             }
 
-            NozzleNative.nozzle_frame_release(frame);
+            NozzleNative.nozzle_unity_frame_release(frame);
         }
 
         void EnsureTargetTexture(int w, int h, NozzleTextureFormat fmt)
