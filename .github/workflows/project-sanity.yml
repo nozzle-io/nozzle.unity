@@ -19,3 +19,57 @@ jobs:
 
       - name: Run project sanity checks
         run: python3 .github/scripts/check_project_sanity.py
+
+  native-bridge-artifact:
+    name: Native bridge artifact (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            artifact-name: nozzle-unity-native-macos
+            python: python3
+          - name: Windows
+            os: windows-latest
+            artifact-name: nozzle-unity-native-windows-x86_64
+            python: python
+          - name: Linux
+            os: ubuntu-latest
+            artifact-name: nozzle-unity-native-linux-x86_64
+            python: python3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux native bridge dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev pkg-config
+
+      - name: Configure native bridge artifact build
+        run: >
+          cmake -S . -B build/native-bridge
+          -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          -DNOZZLE_BUILD_TESTS=OFF
+          -DNOZZLE_INSTALL=OFF
+          -DNOZZLE_UNITY_ARTIFACT_ROOT=${{ github.workspace }}/build/nozzle-unity-artifact
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build staged native bridge artifact
+        run: cmake --build build/native-bridge --target nozzle_unity_package_artifact --config Release --parallel
+
+      - name: Validate staged native bridge artifact
+        run: ${{ matrix.python }} .github/scripts/check_project_sanity.py --skip-stub-build --native-artifact build/nozzle-unity-artifact
+
+      - name: Upload staged native bridge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: build/nozzle-unity-artifact/
+          if-no-files-found: error

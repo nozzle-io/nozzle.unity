@@ -16,12 +16,13 @@ Do not use the repository root URL; the package manifest is under `Packages/org.
 
 ## Current status
 
-It does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
+The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI now also builds per-OS staged package artifacts that include a compiled `nozzle_unity` bridge binary, but those artifacts are still unsupported at runtime unless the bridge diagnostics report otherwise.
 
 - Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
 - `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
 - The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
-- The default native bridge build is a CI stub that compiles without Unity headers and reports runtime support as disabled.
+- CI builds macOS, Windows, and Linux staged package artifacts with a compiled `nozzle_unity` native bridge binary when platform dependencies are available.
+- The default native bridge build compiles without Unity headers and reports runtime support as disabled.
 - No Unity Editor or Player runtime support is claimed.
 - No macOS Metal or Windows D3D11 Unity runtime smoke evidence is present.
 
@@ -33,6 +34,19 @@ The CI-safe bridge build checks ABI/export shape only:
 cmake -S . -B build/nozzle_unity_stub -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF
 cmake --build build/nozzle_unity_stub --target nozzle_unity
 ```
+
+To build the same staged package shape used by CI:
+
+```sh
+cmake -S . -B build/nozzle_unity_native \
+  -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON \
+  -DNOZZLE_BUILD_EXAMPLES=OFF \
+  -DNOZZLE_BUILD_TESTS=OFF \
+  -DNOZZLE_INSTALL=OFF
+cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
+```
+
+The staged artifact is written under `build/nozzle_unity_native/nozzle-unity-artifact/Packages/org.nozzle-io.unity` with the native binary under `Runtime/Plugins/<platform>/`. It is a build artifact, not a runtime support claim.
 
 A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
 

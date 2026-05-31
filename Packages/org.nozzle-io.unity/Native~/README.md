@@ -1,6 +1,6 @@
 # nozzle_unity native bridge scaffold
 
-This directory contains the native Unity bridge ABI for the package. It is source-only: the UPM package does **not** currently ship compiled `.dll`, `.dylib`, `.bundle`, or `.so` plugin binaries.
+This directory contains the native Unity bridge ABI for the package. The Git UPM package remains source-first and does **not** commit compiled `.dll`, `.dylib`, `.bundle`, or `.so` plugin binaries. CI builds staged package artifacts with a compiled `nozzle_unity` binary where the host platform can build it.
 
 ## CI stub build
 
@@ -12,6 +12,21 @@ cmake --build build/nozzle_unity_stub --target nozzle_unity
 ```
 
 That build verifies the exported `nozzle_unity_*` ABI and C# package boundary. It is not a runtime implementation.
+
+## CI native package artifact
+
+The CI artifact build compiles the bridge with the nozzle core submodule and stages a UPM package copy with the native binary under `Runtime/Plugins/<platform>/`:
+
+```sh
+cmake -S . -B build/nozzle_unity_native \
+  -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON \
+  -DNOZZLE_BUILD_EXAMPLES=OFF \
+  -DNOZZLE_BUILD_TESTS=OFF \
+  -DNOZZLE_INSTALL=OFF
+cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
+```
+
+The artifact is still runtime-unsupported by default. Without Unity Native Plugin API headers and completed Unity render-thread/nozzle wiring, `nozzle_unity_get_support` must report `runtime_supported = 0`.
 
 ## Real Unity-header build path
 

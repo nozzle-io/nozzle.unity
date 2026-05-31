@@ -2,6 +2,10 @@
 
 #include "nozzle_unity_environment.hpp"
 
+#if defined(NOZZLE_UNITY_WITH_NOZZLE_CORE)
+    #include "nozzle/nozzle_c.h"
+#endif
+
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -38,6 +42,17 @@ int32_t unsupported_runtime_status() {
     return (int32_t)nozzle_unity_status_unsupported;
 }
 
+uint32_t direct_nozzle_c_abi_available() {
+#if defined(NOZZLE_UNITY_WITH_NOZZLE_CORE)
+    NozzleSenderDesc desc{};
+    uint32_t fallback_flags{0};
+    const NozzleErrorCode error_code = nozzle_resolve_fallback_flags(&desc, &fallback_flags);
+    return error_code == NOZZLE_OK ? 1u : 0u;
+#else
+    return 0u;
+#endif
+}
+
 } // namespace
 
 extern "C" {
@@ -54,7 +69,7 @@ NOZZLE_UNITY_API int32_t nozzle_unity_get_support(nozzle_unity_support_info *out
     out_support->unity_headers_compiled = (uint32_t)nozzle_unity_environment_has_unity_headers();
     out_support->unity_graphics_device_available = (uint32_t)nozzle_unity_environment_has_graphics_device();
     out_support->render_thread_events_available = nozzle_unity_environment_render_event_func() != nullptr ? 1u : 0u;
-    out_support->direct_nozzle_c_abi_available = 0;
+    out_support->direct_nozzle_c_abi_available = direct_nozzle_c_abi_available();
     write_status_message(
         out_support->status_message,
         NOZZLE_UNITY_STATUS_MESSAGE_CAPACITY,

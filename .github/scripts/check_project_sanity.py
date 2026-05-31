@@ -8,6 +8,8 @@ assembly definition, native P/Invoke boundary, and recursive submodule state.
 from __future__ import annotations
 
 import json
+import argparse
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +20,7 @@ RUNTIME_ROOT = PACKAGE_ROOT / "Runtime"
 NATIVE_SOURCE_ROOT = PACKAGE_ROOT / "Native~"
 DOCUMENTATION_ROOT = PACKAGE_ROOT / "Documentation~"
 SAMPLES_ROOT = PACKAGE_ROOT / "Samples~"
+NATIVE_LIBRARY_SUFFIXES = {".dll", ".dylib", ".so"}
 
 
 def fail(message: str) -> None:
@@ -67,6 +70,13 @@ def require_text(path: Path, needle: str, label: str | None = None) -> None:
     text = path.read_text(encoding="utf-8")
     if needle not in text:
         fail(f"{path.relative_to(ROOT)} must contain {label or needle!r}")
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def check_package_manifest() -> None:
@@ -215,7 +225,7 @@ def check_docs_and_samples() -> None:
         native_plugins = [
             path
             for path in plugins_root.rglob("*")
-            if path.suffix.lower() in {".dll", ".dylib", ".bundle", ".so"}
+            if path.suffix.lower() in NATIVE_LIBRARY_SUFFIXES or path.suffix.lower() == ".bundle"
         ]
     if not native_plugins:
         require_text(package_readme, "No compiled native plugin")
@@ -258,10 +268,11 @@ def check_native_bridge_sources() -> None:
     require_text(cmake, "NOZZLE_UNITY_PLUGIN_API_DIR")
     require_text(cmake, "nozzle_unity_bridge_stub.cpp")
     require_text(cmake, "nozzle_unity_bridge_unity.cpp")
+    require_text(cmake, "nozzle_unity_package_artifact")
+    require_text(cmake, "NOZZLE_UNITY_ARTIFACT_ROOT")
 
 
-def check_native_bridge_stub_build() -> None:
-    build_dir = ROOT / "build" / "project-sanity-nozzle-unity-stub"
+def run_cmake_configure(build_dir: Path, definitions: list[str]) -> None:
     configure = subprocess.run(
         [
             "cmake",
@@ -269,7 +280,7 @@ def check_native_bridge_stub_build() -> None:
             str(ROOT),
             "-B",
             str(build_dir),
-            "-DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF",
+            *definitions,
         ],
         cwd=ROOT,
         text=True,
@@ -282,10 +293,15 @@ def check_native_bridge_stub_build() -> None:
     if configure.stderr:
         print(configure.stderr, end="", file=sys.stderr)
     if configure.returncode != 0:
-        fail(f"cmake configure for nozzle_unity stub failed with exit code {configure.returncode}")
+        fail(f"cmake configure failed for {display_path(build_dir)} with exit code {configure.returncode}")
 
+
+def run_cmake_build(build_dir: Path, target: str, config: str | None = None) -> None:
+    command = ["cmake", "--build", str(build_dir), "--target", target]
+    if config:
+        command.extend(["--config", config])
     build = subprocess.run(
-        ["cmake", "--build", str(build_dir), "--target", "nozzle_unity"],
+        command,
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -297,7 +313,63 @@ def check_native_bridge_stub_build() -> None:
     if build.stderr:
         print(build.stderr, end="", file=sys.stderr)
     if build.returncode != 0:
-        fail(f"cmake build for nozzle_unity stub failed with exit code {build.returncode}")
+        fail(f"cmake build target {target!r} failed for {display_path(build_dir)} with exit code {build.returncode}")
+
+
+def check_native_bridge_stub_build() -> None:
+    build_dir = ROOT / "build" / "project-sanity-nozzle-unity-stub"
+    run_cmake_configure(build_dir, ["-DNOZZLE_UNITY_BUILD_NOZZLE_CORE=OFF"])
+    run_cmake_build(build_dir, "nozzle_unity")
+
+
+def expected_artifact_plugin_fragment() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        return Path("Runtime") / "Plugins" / "macOS"
+    if system == "Windows":
+        return Path("Runtime") / "Plugins" / "Windows" / "x86_64"
+    if system == "Linux":
+        return Path("Runtime") / "Plugins" / "Linux" / "x86_64"
+    return Path("Runtime") / "Plugins" / system
+
+
+def check_native_artifact(artifact_root: Path) -> None:
+    require_dir(artifact_root)
+    artifact_package_root = artifact_root / "Packages" / "org.nozzle-io.unity"
+    require_dir(artifact_package_root)
+    require_file(artifact_package_root / "package.json")
+    require_file(artifact_package_root / "Native~" / "include" / "nozzle_unity" / "nozzle_unity_bridge.h")
+    require_file(artifact_package_root / "Native~" / "src" / "nozzle_unity_bridge_common.cpp")
+
+    plugins_root = artifact_package_root / "Runtime" / "Plugins"
+    require_dir(plugins_root)
+    native_plugins = [
+        path
+        for path in plugins_root.rglob("*")
+        if path.is_file() and path.suffix.lower() in NATIVE_LIBRARY_SUFFIXES
+    ]
+    if len(native_plugins) != 1:
+        fail(
+            f"native artifact must contain exactly one nozzle_unity plugin binary under "
+            f"{display_path(plugins_root)}, got {[display_path(path) for path in native_plugins]!r}"
+        )
+
+    native_plugin = native_plugins[0]
+    if "nozzle_unity" not in native_plugin.name:
+        fail(f"native artifact plugin must be named for nozzle_unity, got {native_plugin.name!r}")
+
+    expected_fragment = expected_artifact_plugin_fragment()
+    relative_plugin = native_plugin.relative_to(artifact_package_root)
+    if expected_fragment not in relative_plugin.parents:
+        fail(
+            f"native artifact plugin path must be under {expected_fragment}, "
+            f"got {relative_plugin}"
+        )
+
+    package_readme = artifact_package_root / "README.md"
+    troubleshooting = artifact_package_root / "Documentation~" / "troubleshooting.md"
+    require_text(package_readme, "no Unity Editor/Player runtime support claim")
+    require_text(troubleshooting, "runtime_supported = 0")
 
 
 def check_submodules() -> None:
@@ -324,7 +396,23 @@ def check_submodules() -> None:
     require_file(ROOT / "nozzle" / "CMakeLists.txt")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--native-artifact",
+        type=Path,
+        help="Validate a staged UPM package plus built nozzle_unity native bridge artifact.",
+    )
+    parser.add_argument(
+        "--skip-stub-build",
+        action="store_true",
+        help="Skip the local CMake stub build check.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     print("nozzle.unity: Project Sanity only; no Unity Editor build/test coverage.")
     check_package_manifest()
     check_asmdef()
@@ -332,7 +420,12 @@ def main() -> None:
     check_native_bridge_sources()
     check_docs_and_samples()
     check_submodules()
-    check_native_bridge_stub_build()
+    if args.skip_stub_build:
+        print("Skipping CMake stub build check by request.")
+    else:
+        check_native_bridge_stub_build()
+    if args.native_artifact is not None:
+        check_native_artifact(args.native_artifact.resolve())
     print("Project sanity checks passed.")
 
 
