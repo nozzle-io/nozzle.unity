@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import argparse
+import ctypes
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -119,6 +121,7 @@ def check_runtime_sources() -> None:
         RUNTIME_ROOT / "NozzleReceiver.cs",
         RUNTIME_ROOT / "NozzleDiscovery.cs",
         RUNTIME_ROOT / "NozzleRuntimeSupport.cs",
+        RUNTIME_ROOT / "NozzleRenderThreadDispatch.cs",
         RUNTIME_ROOT / "Native" / "NozzleNative.cs",
     ]
     for path in required_runtime_files:
@@ -170,6 +173,12 @@ def check_runtime_sources() -> None:
     require_text(support, "RequireBridgeRuntime")
     require_text(support, "runtime support")
 
+    dispatch = RUNTIME_ROOT / "NozzleRenderThreadDispatch.cs"
+    require_text(dispatch, "ManagedNativeTextureOperationsImplemented = false")
+    require_text(dispatch, "GL.IssuePluginEvent")
+    require_text(dispatch, "CommandBuffer.IssuePluginEvent")
+    require_text(dispatch, "nozzle_unity_get_render_event_func")
+
     for component in [
         RUNTIME_ROOT / "NozzleSender.cs",
         RUNTIME_ROOT / "NozzleReceiver.cs",
@@ -179,6 +188,17 @@ def check_runtime_sources() -> None:
         text = component.read_text(encoding="utf-8")
         if "WarnExperimentalRuntime" in text:
             fail(f"{component.relative_to(ROOT)} still uses stale direct-runtime warning path")
+
+    for component in [
+        RUNTIME_ROOT / "NozzleSender.cs",
+        RUNTIME_ROOT / "NozzleReceiver.cs",
+    ]:
+        require_text(component, "RequireNativeTextureOperationDispatch")
+
+    receiver = RUNTIME_ROOT / "NozzleReceiver.cs"
+    require_text(receiver, "frame_copy_to_native_texture failed")
+    require_text(receiver, "finally")
+    require_text(receiver, "nozzle_unity_frame_release(frame)")
 
 
 def check_docs_and_samples() -> None:
@@ -322,6 +342,113 @@ def check_native_bridge_stub_build() -> None:
     run_cmake_build(build_dir, "nozzle_unity")
 
 
+
+class NativeSupportInfo(ctypes.Structure):
+    _fields_ = [
+        ("abi_version", ctypes.c_uint32),
+        ("bridge_binary_loaded", ctypes.c_uint32),
+        ("runtime_supported", ctypes.c_uint32),
+        ("unity_headers_compiled", ctypes.c_uint32),
+        ("unity_graphics_device_available", ctypes.c_uint32),
+        ("render_thread_events_available", ctypes.c_uint32),
+        ("direct_nozzle_c_abi_available", ctypes.c_uint32),
+        ("status_message", ctypes.c_char * 256),
+    ]
+
+
+def load_native_library(native_plugin: Path) -> ctypes.CDLL:
+    try:
+        if platform.system() == "Windows":
+            return ctypes.WinDLL(str(native_plugin))
+        return ctypes.CDLL(str(native_plugin))
+    except OSError as error:
+        fail(f"failed to load native artifact plugin {display_path(native_plugin)}: {error}")
+
+
+def check_exported_symbols(native_plugin: Path, library: ctypes.CDLL) -> None:
+    required_exports = [
+        "nozzle_unity_get_support",
+        "nozzle_unity_get_version",
+        "nozzle_unity_get_render_event_func",
+        "nozzle_unity_sender_create",
+        "nozzle_unity_sender_publish_native_texture",
+        "nozzle_unity_receiver_create",
+        "nozzle_unity_receiver_acquire_frame",
+        "nozzle_unity_frame_get_info",
+        "nozzle_unity_frame_copy_to_native_texture",
+        "nozzle_unity_discovery_enumerate_senders",
+    ]
+    for symbol in required_exports:
+        try:
+            getattr(library, symbol)
+        except AttributeError:
+            fail(f"native artifact plugin {display_path(native_plugin)} is missing exported symbol {symbol}")
+
+
+def check_native_support_contract(native_plugin: Path, library: ctypes.CDLL) -> None:
+    get_support = library.nozzle_unity_get_support
+    get_support.argtypes = [ctypes.POINTER(NativeSupportInfo)]
+    get_support.restype = ctypes.c_int32
+
+    support = NativeSupportInfo()
+    status = get_support(ctypes.byref(support))
+    if status != 0:
+        fail(f"nozzle_unity_get_support returned {status} for {display_path(native_plugin)}")
+    if support.abi_version != 1:
+        fail(f"native artifact ABI version must be 1, got {support.abi_version}")
+    if support.bridge_binary_loaded != 1:
+        fail(f"native artifact bridge_binary_loaded must be 1, got {support.bridge_binary_loaded}")
+    if support.runtime_supported != 0:
+        fail(f"CI-staged stub/native ABI artifact must report runtime_supported = 0, got {support.runtime_supported}")
+    if support.unity_headers_compiled != 0:
+        fail(f"default CI artifact must be the stub/native ABI build with unity_headers_compiled = 0, got {support.unity_headers_compiled}")
+    if support.render_thread_events_available != 0:
+        fail(f"stub/native ABI artifact must report render_thread_events_available = 0, got {support.render_thread_events_available}")
+
+    message = bytes(support.status_message).split(b"\0", 1)[0].decode("utf-8", errors="replace")
+    if "CI stub" not in message or "runtime" not in message:
+        fail(f"native artifact support message must identify the CI stub runtime-disabled boundary, got {message!r}")
+    print(
+        "Native artifact support: "
+        f"abi={support.abi_version}, runtime_supported={support.runtime_supported}, "
+        f"unity_headers_compiled={support.unity_headers_compiled}, "
+        f"render_thread_events_available={support.render_thread_events_available}, "
+        f"direct_nozzle_c_abi_available={support.direct_nozzle_c_abi_available}, "
+        f"message={message!r}"
+    )
+
+
+def inspect_loader_dependencies(native_plugin: Path) -> None:
+    system = platform.system()
+    if system == "Darwin":
+        command = ["otool", "-L", str(native_plugin)]
+    elif system == "Linux":
+        command = ["ldd", str(native_plugin)]
+    elif system == "Windows":
+        dumpbin = shutil.which("dumpbin")
+        if dumpbin is None:
+            print("Skipping Windows loader dependency inspection: dumpbin not found.")
+            return
+        command = [dumpbin, "/DEPENDENTS", str(native_plugin)]
+    else:
+        print(f"Skipping loader dependency inspection on unsupported host {system}.")
+        return
+
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if result.returncode != 0:
+        fail(f"loader dependency inspection failed for {display_path(native_plugin)} with exit code {result.returncode}")
+
 def expected_artifact_plugin_fragment() -> Path:
     system = platform.system()
     if system == "Darwin":
@@ -366,8 +493,14 @@ def check_native_artifact(artifact_root: Path) -> None:
             f"got {relative_plugin}"
         )
 
+    library = load_native_library(native_plugin)
+    check_exported_symbols(native_plugin, library)
+    check_native_support_contract(native_plugin, library)
+    inspect_loader_dependencies(native_plugin)
+
     package_readme = artifact_package_root / "README.md"
     troubleshooting = artifact_package_root / "Documentation~" / "troubleshooting.md"
+    require_text(package_readme, "CI-staged stub/native ABI artifact")
     require_text(package_readme, "no Unity Editor/Player runtime support claim")
     require_text(troubleshooting, "runtime_supported = 0")
 

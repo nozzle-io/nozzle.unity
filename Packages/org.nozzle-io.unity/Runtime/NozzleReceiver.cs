@@ -90,6 +90,7 @@ namespace Nozzle
         void Update()
         {
             if (!initialized) return;
+            if (!NozzleRenderThreadDispatch.RequireNativeTextureOperationDispatch("receiver acquire/copy native texture")) return;
 
             var acquireDesc = new NozzleNative.AcquireDesc { TimeoutMs = timeoutMs };
             NozzleNative.NozzleFrame* frame;
@@ -162,15 +163,45 @@ namespace Nozzle
 
             EnsureTargetTexture((int)info.Width, (int)info.Height, (NozzleTextureFormat)info.TextureFormat);
 
-            if (targetTexture != null)
+            try
             {
-                IntPtr nativePtr = targetTexture.GetNativeTexturePtr();
-                NozzleNative.nozzle_unity_frame_copy_to_native_texture(
-                    frame, (void*)nativePtr, info.Width, info.Height, info.TextureFormat
-                );
-            }
+                if (targetTexture != null)
+                {
+                    IntPtr nativePtr = targetTexture.GetNativeTexturePtr();
+                    NozzleRenderThreadDispatch.IssuePluginEvent(NozzleRenderThreadDispatch.ReceiverAcquireAndCopyNativeTextureEvent);
 
-            NozzleNative.nozzle_unity_frame_release(frame);
+                    int copyEc = NozzleNative.nozzle_unity_frame_copy_to_native_texture(
+                        frame, (void*)nativePtr, info.Width, info.Height, info.TextureFormat
+                    );
+
+                    if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(copyEc, "receiver frame_copy_to_native_texture"))
+                    {
+                        connected = false;
+                        return;
+                    }
+
+                    if (copyEc != 0)
+                    {
+                        connected = false;
+                        Debug.LogError($"[Nozzle] bridge frame_copy_to_native_texture failed: error {copyEc}");
+                        return;
+                    }
+                }
+            }
+            catch (DllNotFoundException exception)
+            {
+                connected = false;
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                connected = false;
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+            }
+            finally
+            {
+                NozzleNative.nozzle_unity_frame_release(frame);
+            }
         }
 
         void EnsureTargetTexture(int w, int h, NozzleTextureFormat fmt)

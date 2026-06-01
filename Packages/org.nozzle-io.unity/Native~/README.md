@@ -13,7 +13,7 @@ cmake --build build/nozzle_unity_stub --target nozzle_unity
 
 That build verifies the exported `nozzle_unity_*` ABI and C# package boundary. It is not a runtime implementation.
 
-## CI native package artifact
+## CI stub/native ABI package artifact
 
 The CI artifact build compiles the bridge with the nozzle core submodule and stages a UPM package copy with the native binary under `Runtime/Plugins/<platform>/`:
 

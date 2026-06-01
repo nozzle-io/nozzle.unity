@@ -2,7 +2,7 @@
 
 Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle).
 
-This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player runtime evidence. CI may attach staged package artifacts with a compiled bridge binary; those artifacts still report unsupported runtime unless the native diagnostics prove otherwise.
+This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player runtime evidence. CI may attach staged package artifacts with a compiled bridge binary; those artifacts are CI-staged stub/native ABI artifacts and remain runtime-disabled. Even a future native diagnostic with `runtime_supported != 0` is not sufficient unless managed render-thread dispatch, native queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence are also present.
 
 ## Install
 
@@ -28,7 +28,7 @@ Installing the UPM package only installs package files. It does **not** install 
 The Git package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
 
 - No compiled native plugin or native binary import settings are committed under `Runtime/Plugins`.
-- CI-built staged artifacts place a compiled `nozzle_unity` bridge binary under `Runtime/Plugins/<platform>/`, but this is only a build artifact and not Editor/Player smoke evidence.
+- CI-staged stub/native ABI artifacts place a compiled `nozzle_unity` bridge binary under `Runtime/Plugins/<platform>/`, but this is only a build artifact and not Editor/Player smoke evidence.
 - The default bridge build compiles without Unity headers and intentionally reports `runtime_supported = 0`.
 - The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none.
 - Sender, receiver, and discovery bridge operations are not wired to nozzle core yet.
@@ -55,7 +55,7 @@ cmake -S . -B build/nozzle_unity_native \
 cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
 ```
 
-No compiled native plugin is committed to this package. The staged artifact is for CI/download validation and must still be treated as runtime unsupported unless `nozzle_unity_get_support` reports `runtime_supported != 0`.
+No compiled native plugin is committed to this package. The staged artifact is for CI/download validation and must still be treated as runtime unsupported. Native diagnostics alone are not a support claim: sender/receiver runtime also requires managed render-thread dispatch through `GL.IssuePluginEvent` or `CommandBuffer.IssuePluginEvent`, native operation queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence.
 
 Unity-header lifecycle build path:
 

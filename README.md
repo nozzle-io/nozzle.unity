@@ -16,12 +16,12 @@ Do not use the repository root URL; the package manifest is under `Packages/org.
 
 ## Current status
 
-The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI now also builds per-OS staged package artifacts that include a compiled `nozzle_unity` bridge binary, but those artifacts are still unsupported at runtime unless the bridge diagnostics report otherwise.
+The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI now also builds per-OS staged package artifacts that include a compiled `nozzle_unity` bridge binary, but those artifacts are still unsupported at runtime. Even a future bridge that reports `runtime_supported != 0` is not enough by itself: sender/receiver runtime remains blocked until managed render-thread dispatch, native queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence exist.
 
 - Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
 - `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
 - The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
-- CI builds macOS, Windows, and Linux staged package artifacts with a compiled `nozzle_unity` native bridge binary when platform dependencies are available.
+- CI builds macOS, Windows, and Linux CI-staged stub/native ABI artifacts with a compiled `nozzle_unity` native bridge binary when platform dependencies are available.
 - The default native bridge build compiles without Unity headers and reports runtime support as disabled.
 - No Unity Editor or Player runtime support is claimed.
 - No macOS Metal or Windows D3D11 Unity runtime smoke evidence is present.

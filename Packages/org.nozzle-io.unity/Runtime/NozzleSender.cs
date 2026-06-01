@@ -79,12 +79,16 @@ namespace Nozzle
         {
             if (!initialized || sourceTexture == null) return;
 
+            if (!NozzleRenderThreadDispatch.RequireNativeTextureOperationDispatch("sender publish_native_texture")) return;
+
             int w = sourceTexture.width;
             int h = sourceTexture.height;
             IntPtr nativePtr = sourceTexture.GetNativeTexturePtr();
 
             try
             {
+                NozzleRenderThreadDispatch.IssuePluginEvent(NozzleRenderThreadDispatch.SenderPublishNativeTextureEvent);
+
                 int ec = NozzleNative.nozzle_unity_sender_publish_native_texture(
                     handle, (void*)nativePtr, (uint)w, (uint)h, (int)format
                 );

@@ -107,6 +107,27 @@ namespace Nozzle
             TryGetBridgeSupport(out var support);
             if (support.RuntimeSupported && support.AbiVersion == NozzleNative.BRIDGE_ABI_VERSION)
             {
+                if (RequiresRenderThreadDispatch(componentName))
+                {
+                    if (!NozzleRenderThreadDispatch.ManagedNativeTextureOperationsImplemented)
+                    {
+                        Debug.LogError(
+                            $"[Nozzle] {componentName} runtime remains disabled: managed sender/receiver native-texture operations " +
+                            "must be queued through GL.IssuePluginEvent or CommandBuffer.IssuePluginEvent before runtime support can be enabled."
+                        );
+                        return false;
+                    }
+
+                    if (!support.RenderThreadEventsAvailable)
+                    {
+                        Debug.LogError(
+                            $"[Nozzle] {componentName} runtime remains disabled: the bridge reports runtime support but no render-thread event function. " +
+                            $"Bridge diagnostics: {FormatBridgeSupportForDiagnostics(support)}"
+                        );
+                        return false;
+                    }
+                }
+
                 return true;
             }
 
@@ -121,7 +142,7 @@ namespace Nozzle
             Debug.LogWarning(
                 $"[Nozzle] {componentName} cannot run because the {BridgeLibraryName} bridge does not report runtime support. " +
                 $"{GetRuntimeLimitations()} Current graphics API: {graphicsDeviceType} ({graphicsStatus}). " +
-                $"Bridge diagnostics: {FormatBridgeSupport(support)}"
+                $"Bridge diagnostics: {FormatBridgeSupportForDiagnostics(support)}"
             );
             return false;
         }
@@ -131,7 +152,7 @@ namespace Nozzle
             if (ec != NozzleNative.STATUS_UNSUPPORTED) return false;
 
             TryGetBridgeSupport(out var support);
-            Debug.LogWarning($"[Nozzle] {operationName} is not implemented by the current nozzle_unity bridge. {FormatBridgeSupport(support)}");
+            Debug.LogWarning($"[Nozzle] {operationName} is not implemented by the current nozzle_unity bridge. {FormatBridgeSupportForDiagnostics(support)}");
             return true;
         }
 
@@ -145,6 +166,11 @@ namespace Nozzle
                 "This package ships bridge source and C# bindings, but no bundled native binary. " +
                 $"Install URL: {PackageGitUrl}. Loader error: {exception.Message}"
             );
+        }
+
+        static bool RequiresRenderThreadDispatch(string componentName)
+        {
+            return componentName == nameof(NozzleSender) || componentName == nameof(NozzleReceiver);
         }
 
         static BridgeSupport MakeUnavailableSupport(string message)
@@ -162,7 +188,7 @@ namespace Nozzle
             };
         }
 
-        static string FormatBridgeSupport(BridgeSupport support)
+        internal static string FormatBridgeSupportForDiagnostics(BridgeSupport support)
         {
             return $"abi={support.AbiVersion}, binary={support.BridgeBinaryLoaded}, runtime={support.RuntimeSupported}, " +
                    $"unity_headers={support.UnityHeadersCompiled}, graphics_device={support.UnityGraphicsDeviceAvailable}, " +

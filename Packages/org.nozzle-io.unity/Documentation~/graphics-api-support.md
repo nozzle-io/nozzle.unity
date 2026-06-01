@@ -18,4 +18,4 @@ Missing runtime implementation:
 - Unity graphics resource mapping into nozzle core native texture/device calls
 - Editor and Player smoke tests for Metal and D3D11
 
-CI-staged native artifacts only prove that the bridge can compile as a platform binary. Runtime support remains unverified until the missing pieces exist and pass Unity Editor and Player smoke tests.
+CI-staged stub/native ABI artifacts only prove that the bridge can compile as a platform binary. Runtime support remains unverified until the missing pieces exist and pass Unity Editor and Player smoke tests.
