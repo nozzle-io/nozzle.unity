@@ -3,9 +3,14 @@ name: Project Sanity
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   project-sanity:
@@ -20,24 +25,27 @@ jobs:
       - name: Run project sanity checks
         run: python3 .github/scripts/check_project_sanity.py
 
-  native-bridge-artifact:
-    name: Native bridge artifact (${{ matrix.name }})
+  native-bridge-payload:
+    name: Native bridge payload (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: macOS
+          - name: macOS universal
             os: macos-latest
-            artifact-name: nozzle-unity-native-macos
+            platform: macos
+            artifact-name: nozzle-unity-native-payload-macos
             python: python3
-          - name: Windows
+          - name: Windows x86_64
             os: windows-latest
-            artifact-name: nozzle-unity-native-windows-x86_64
+            platform: windows-x86_64
+            artifact-name: nozzle-unity-native-payload-windows-x86_64
             python: python
-          - name: Linux
+          - name: Linux x86_64
             os: ubuntu-latest
-            artifact-name: nozzle-unity-native-linux-x86_64
+            platform: linux-x86_64
+            artifact-name: nozzle-unity-native-payload-linux-x86_64
             python: python3
     steps:
       - name: Checkout
@@ -51,25 +59,124 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev pkg-config
 
+      - name: Configure MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Configure native bridge artifact build
-        run: >
-          cmake -S . -B build/native-bridge
-          -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON
-          -DNOZZLE_BUILD_EXAMPLES=OFF
-          -DNOZZLE_BUILD_TESTS=OFF
-          -DNOZZLE_INSTALL=OFF
-          -DNOZZLE_UNITY_ARTIFACT_ROOT=${{ github.workspace }}/build/nozzle-unity-artifact
-          -DCMAKE_BUILD_TYPE=Release
+        shell: python
+        run: |
+          import os
+          import subprocess
+
+          command = [
+              "cmake",
+              "-S", ".",
+              "-B", "build/native-bridge",
+              "-DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON",
+              "-DNOZZLE_BUILD_EXAMPLES=OFF",
+              "-DNOZZLE_BUILD_TESTS=OFF",
+              "-DNOZZLE_INSTALL=OFF",
+              f"-DNOZZLE_UNITY_ARTIFACT_ROOT={os.environ['GITHUB_WORKSPACE']}/build/nozzle-unity-artifact",
+              "-DCMAKE_BUILD_TYPE=Release",
+          ]
+          if "${{ matrix.platform }}" == "macos":
+              command.append("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64")
+          subprocess.run(command, check=True)
 
       - name: Build staged native bridge artifact
         run: cmake --build build/native-bridge --target nozzle_unity_package_artifact --config Release --parallel
 
-      - name: Validate staged native bridge artifact
+      - name: Validate staged native bridge artifact boundary
         run: ${{ matrix.python }} .github/scripts/check_project_sanity.py --skip-stub-build --native-artifact build/nozzle-unity-artifact
 
-      - name: Upload staged native bridge artifact
+      - name: Create validated native payload
+        run: >
+          ${{ matrix.python }} scripts/create_native_payload.py
+          --platform ${{ matrix.platform }}
+          --artifact-root build/nozzle-unity-artifact
+          --output-root build/native-payload-root
+
+      - name: Validate native payload contract
+        run: >
+          ${{ matrix.python }} scripts/validate_native_payload.py
+          --platform ${{ matrix.platform }}
+          --payload build/native-payload-root/native-payload/${{ matrix.platform }}
+
+      - name: Upload validated native payload
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: build/nozzle-unity-artifact/
+          path: build/native-payload-root/
           if-no-files-found: error
+
+  package-upm-tgz:
+    name: Package UPM tgz
+    runs-on: ubuntu-latest
+    needs:
+      - project-sanity
+      - native-bridge-payload
+    outputs:
+      artifact_name: ${{ steps.channel.outputs.artifact_name }}
+      channel: ${{ steps.channel.outputs.channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download validated native payloads
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nozzle-unity-native-payload-*
+          path: build/downloaded-payloads
+          merge-multiple: true
+
+      - name: Resolve release artifact channel
+        id: channel
+        run: python3 scripts/resolve_release_channel.py --github-output "$GITHUB_OUTPUT"
+
+      - name: Package UPM tgz
+        run: >
+          python3 scripts/package_upm_tgz.py
+          --payload-root build/downloaded-payloads/native-payload
+          --output "build/upm/${{ steps.channel.outputs.artifact_name }}"
+
+      - name: Static UPM archive / manifest preflight
+        run: >
+          python3 scripts/validate_upm_tgz.py
+          --tgz "build/upm/${{ steps.channel.outputs.artifact_name }}"
+          --payload-root build/downloaded-payloads/native-payload
+
+      - name: Upload validated UPM tgz
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.channel.outputs.artifact_name }}
+          path: build/upm/${{ steps.channel.outputs.artifact_name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish UPM tgz release asset
+    runs-on: ubuntu-latest
+    needs: package-upm-tgz
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download validated UPM tgz
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-upm-tgz.outputs.artifact_name }}
+          path: build/release
+
+      - name: Publish GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          python3 scripts/publish_release_assets.py
+          --artifact "build/release/${{ needs.package-upm-tgz.outputs.artifact_name }}"

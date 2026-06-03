@@ -291,6 +291,24 @@ def check_native_bridge_sources() -> None:
     require_text(cmake, "nozzle_unity_package_artifact")
     require_text(cmake, "NOZZLE_UNITY_ARTIFACT_ROOT")
 
+    required_release_scripts = [
+        ROOT / "scripts" / "create_native_payload.py",
+        ROOT / "scripts" / "validate_native_payload.py",
+        ROOT / "scripts" / "package_upm_tgz.py",
+        ROOT / "scripts" / "validate_upm_tgz.py",
+        ROOT / "scripts" / "resolve_release_channel.py",
+        ROOT / "scripts" / "publish_release_assets.py",
+        ROOT / "scripts" / "unity_release_contract.py",
+    ]
+    for path in required_release_scripts:
+        require_file(path)
+    contract = ROOT / "scripts" / "unity_release_contract.py"
+    require_text(contract, "PluginImporter")
+    require_text(contract, "deterministic_guid")
+    require_text(contract, "Windows dependency inspection requires dumpbin")
+    require_text(contract, "runtime_supported")
+    require_text(ROOT / "scripts" / "validate_upm_tgz.py", "Static UPM archive / manifest preflight")
+
 
 def run_cmake_configure(build_dir: Path, definitions: list[str]) -> None:
     configure = subprocess.run(
@@ -427,8 +445,7 @@ def inspect_loader_dependencies(native_plugin: Path) -> None:
     elif system == "Windows":
         dumpbin = shutil.which("dumpbin")
         if dumpbin is None:
-            print("Skipping Windows loader dependency inspection: dumpbin not found.")
-            return
+            fail("Windows loader dependency inspection requires dumpbin; configure a Visual Studio developer environment instead of skipping")
         command = [dumpbin, "/DEPENDENTS", str(native_plugin)]
     else:
         print(f"Skipping loader dependency inspection on unsupported host {system}.")

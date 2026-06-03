@@ -28,7 +28,9 @@ Installing the UPM package only installs package files. It does **not** install 
 The Git package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
 
 - No compiled native plugin or native binary import settings are committed under `Runtime/Plugins`.
-- CI-staged stub/native ABI artifacts place a compiled `nozzle_unity` bridge binary under `Runtime/Plugins/<platform>/`, but this is only a build artifact and not Editor/Player smoke evidence.
+- CI-staged stub/native ABI payloads place compiled `nozzle_unity` bridge binaries under `Runtime/Plugins/<platform>/`, but these are only build artifacts and not Editor/Player smoke evidence.
+- Release packaging CI may publish a UPM `.tgz` named `org.nozzle-io.unity-latest-<short_sha>.tgz` or `org.nozzle-io.unity-<tag>.tgz`. That archive is validated by static UPM archive / manifest preflight plus native payload hash checks; it is not Unity Editor import evidence.
+- Native plugin `.meta` files in release archives are deterministic `PluginImporter` metadata generated for the target plugin paths. Random Unity importer output must not be treated as release evidence.
 - The default bridge build compiles without Unity headers and intentionally reports `runtime_supported = 0`.
 - The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none.
 - Sender, receiver, and discovery bridge operations are not wired to nozzle core yet.
@@ -55,7 +57,7 @@ cmake -S . -B build/nozzle_unity_native \
 cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
 ```
 
-No compiled native plugin is committed to this package. The staged artifact is for CI/download validation and must still be treated as runtime unsupported. Native diagnostics alone are not a support claim: sender/receiver runtime also requires managed render-thread dispatch through `GL.IssuePluginEvent` or `CommandBuffer.IssuePluginEvent`, native operation queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence.
+No compiled native plugin is committed to this package. The staged artifact and UPM `.tgz` release archive are for CI/download validation and must still be treated as runtime unsupported. Native diagnostics alone are not a support claim: sender/receiver runtime also requires managed render-thread dispatch through `GL.IssuePluginEvent` or `CommandBuffer.IssuePluginEvent`, native operation queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence.
 
 Unity-header lifecycle build path:
 

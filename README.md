@@ -21,7 +21,9 @@ The Git UPM package does not bundle native binaries, and it has no Unity Editor/
 - Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
 - `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
 - The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
-- CI builds macOS, Windows, and Linux CI-staged stub/native ABI artifacts with a compiled `nozzle_unity` native bridge binary when platform dependencies are available.
+- CI builds macOS, Windows, and Linux CI-staged stub/native ABI payloads with compiled `nozzle_unity` native bridge binaries when platform dependencies are available.
+- CI assembles a validated UPM `.tgz` from those payloads: `org.nozzle-io.unity-latest-<short_sha>.tgz` for `main` and `org.nozzle-io.unity-<tag>.tgz` for tags.
+- The `.tgz` validator is static UPM archive / manifest preflight only. It verifies archive shape, native plugin payload hashes, deterministic `PluginImporter` `.meta` files, dependency inspection evidence, and package metadata; it does not run Unity Editor import.
 - The default native bridge build compiles without Unity headers and reports runtime support as disabled.
 - No Unity Editor or Player runtime support is claimed.
 - No macOS Metal or Windows D3D11 Unity runtime smoke evidence is present.
@@ -47,6 +49,8 @@ cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact -
 ```
 
 The staged artifact is written under `build/nozzle_unity_native/nozzle-unity-artifact/Packages/org.nozzle-io.unity` with the native binary under `Runtime/Plugins/<platform>/`. It is a build artifact, not a runtime support claim.
+
+Release packaging CI converts validated platform payloads into a single UPM archive. The aggregate package starts from the checked-in source package and copies only validated `Runtime/Plugins/...` binary plus `.meta` payloads from platform jobs; it does not overlay full platform package trees.
 
 A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
 

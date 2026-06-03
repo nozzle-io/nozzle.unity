@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "artifacts": [
+    {
+      "id": "nozzle.unity",
+      "latest_patterns": [
+        "org.nozzle-io.unity-latest-<short_sha>.tgz"
+      ],
+      "versioned_patterns": [
+        "org.nozzle-io.unity-<tag>.tgz"
+      ],
+      "workflow": {
+        "file": "project-sanity.yml",
+        "release_job": "release",
+        "package_jobs": [
+          "package-upm-tgz"
+        ],
+        "aggregate_release": true,
+        "latest_ref": "refs/heads/main",
+        "versioned_trigger": "refs/tags/v*",
+        "versioned_tag_policy": "exact-semver-vX.Y.Z"
+      },
+      "implementation": {
+        "channel_script": "scripts/resolve_release_channel.py",
+        "package_script": "scripts/package_upm_tgz.py",
+        "release_script": "scripts/publish_release_assets.py"
+      }
+    }
+  ]
+}
