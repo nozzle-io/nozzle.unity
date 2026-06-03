@@ -141,12 +141,14 @@ jobs:
           python3 scripts/package_upm_tgz.py
           --payload-root build/downloaded-payloads/native-payload
           --output "build/upm/${{ steps.channel.outputs.artifact_name }}"
+          --expected-source-commit "$GITHUB_SHA"
 
       - name: Static UPM archive / manifest preflight
         run: >
           python3 scripts/validate_upm_tgz.py
           --tgz "build/upm/${{ steps.channel.outputs.artifact_name }}"
           --payload-root build/downloaded-payloads/native-payload
+          --expected-source-commit "$GITHUB_SHA"
 
       - name: Upload validated UPM tgz
         uses: actions/upload-artifact@v4

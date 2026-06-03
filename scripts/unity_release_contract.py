@@ -141,15 +141,16 @@ SYSTEM_DEPENDENCY_ALLOWLIST: dict[str, set[str]] = {
         "DXGI.dll",
         "KERNEL32.dll",
         "MSVCP140.dll",
-        "MSVCP140D.dll",
         "ucrtbase.dll",
-        "ucrtbased.dll",
         "VCRUNTIME140.dll",
-        "VCRUNTIME140D.dll",
         "VCRUNTIME140_1.dll",
-        "VCRUNTIME140_1D.dll",
     },
 }
+
+MACOS_ALLOWED_SYSTEM_PREFIXES = (
+    "/usr/lib/",
+    "/System/Library/",
+)
 
 
 def fail(message: str) -> None:
@@ -397,7 +398,7 @@ def reject_bad_dependencies(contract: PlatformContract, dependencies: list[str])
         if contract.key == "macos":
             if dep.startswith("@rpath/") or dep.startswith("@loader_path/") or dep.startswith("@executable_path/"):
                 rejected.append(dep)
-            elif dep not in allowlist and not dep.startswith("/usr/lib/") and not dep.startswith("/System/Library/"):
+            elif dep not in allowlist and not dep.startswith(MACOS_ALLOWED_SYSTEM_PREFIXES):
                 rejected.append(dep)
         elif contract.key == "linux-x86_64":
             if dep_basename not in allowlist:
@@ -433,6 +434,8 @@ def inspect_dependencies(native_plugin: Path, contract: PlatformContract, root: 
     return {
         "tool": contract.dependency_tool,
         "command": command,
+        "allowed_dependencies": sorted(SYSTEM_DEPENDENCY_ALLOWLIST[contract.key]),
+        "allowed_system_prefixes": list(MACOS_ALLOWED_SYSTEM_PREFIXES) if contract.key == "macos" else [],
         "dependencies": deps,
         "rejected": rejected,
         "result": "pass",
@@ -469,7 +472,7 @@ def inspect_architecture(native_plugin: Path, contract: PlatformContract, root: 
     return {"tool": command[0], "command": command, "parsed_architectures": archs, "expected_architectures": list(contract.expected_architectures), "result": "pass"}
 
 
-def validate_payload_schema(payload_dir: Path, platform_key: str | None = None) -> dict[str, Any]:
+def validate_payload_schema(payload_dir: Path, platform_key: str | None = None, expected_source_commit: str | None = None) -> dict[str, Any]:
     validation_path = payload_dir / "validation.json"
     data = read_json(validation_path)
     if data.get("schema_version") != VALIDATION_SCHEMA_VERSION:
@@ -480,6 +483,11 @@ def validate_payload_schema(payload_dir: Path, platform_key: str | None = None) 
     if platform_key is not None and key != platform_key:
         fail(f"payload platform mismatch: expected {platform_key}, got {key}")
     contract = PLATFORMS[key]
+    source_commit = data.get("source_commit")
+    if not isinstance(source_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        fail(f"payload validation source_commit must be a 40-character git SHA: {validation_path}")
+    if expected_source_commit is not None and source_commit != expected_source_commit:
+        fail(f"payload source_commit mismatch for {key}: expected {expected_source_commit}, got {source_commit}")
     if data.get("expected_support_mode") != EXPECTED_SUPPORT_MODE:
         fail(f"payload expected_support_mode must be {EXPECTED_SUPPORT_MODE}: {validation_path}")
     binary_relative = data.get("binary", {}).get("relative_path")

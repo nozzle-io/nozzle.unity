@@ -13,6 +13,7 @@ from unity_release_contract import (
     PACKAGE_NAME,
     PACKAGE_ROOT_RELATIVE,
     PLATFORMS,
+    current_git_sha,
     fail,
     package_manifest,
     validate_no_forbidden_package_files,
@@ -34,8 +35,8 @@ def copy_source_package(destination_package_root: Path) -> None:
         shutil.rmtree(plugins)
 
 
-def copy_payload(payload_dir: Path, package_root: Path, platform_key: str) -> dict:
-    data = validate_payload_schema(payload_dir, platform_key)
+def copy_payload(payload_dir: Path, package_root: Path, platform_key: str, expected_source_commit: str) -> dict:
+    data = validate_payload_schema(payload_dir, platform_key, expected_source_commit)
     contract = PLATFORMS[platform_key]
     for relative in [contract.plugin_relative_path, Path(f"{contract.plugin_relative_path.as_posix()}.meta")]:
         source = payload_dir / relative
@@ -89,6 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--payload-root", required=True, type=Path, help="Directory containing native-payload/<platform> payloads")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--work-dir", default=ROOT / "build" / "upm-package-work", type=Path)
+    parser.add_argument("--expected-source-commit", default=None, help="Expected git SHA for all native payloads; defaults to git rev-parse HEAD")
     return parser.parse_args()
 
 
@@ -97,6 +99,7 @@ def main() -> None:
     payload_root = args.payload_root.resolve()
     if (payload_root / "native-payload").is_dir():
         payload_root = payload_root / "native-payload"
+    expected_source_commit = args.expected_source_commit or current_git_sha(ROOT)
     work_dir = args.work_dir.resolve()
     package_root = work_dir / "package"
     if work_dir.exists():
@@ -107,9 +110,11 @@ def main() -> None:
     payloads = {}
     for platform_key in sorted(PLATFORMS):
         payload_dir = payload_root / platform_key
-        payloads[platform_key] = copy_payload(payload_dir, package_root, platform_key)
+        payloads[platform_key] = copy_payload(payload_dir, package_root, platform_key, expected_source_commit)
         if payloads[platform_key]["package"]["name"] != manifest["name"] or payloads[platform_key]["package"]["version"] != manifest["version"]:
             fail(f"payload package identity mismatch for {platform_key}")
+        if payloads[platform_key]["source_commit"] != expected_source_commit:
+            fail(f"payload source_commit mismatch for {platform_key}")
     assert_expected_plugin_set(package_root)
     validate_no_forbidden_package_files(package_root)
     deterministic_tgz(package_root, args.output.resolve())
