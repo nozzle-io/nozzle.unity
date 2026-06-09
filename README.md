@@ -52,6 +52,36 @@ The staged artifact is written under `build/nozzle_unity_native/nozzle-unity-art
 
 Release packaging CI converts validated platform payloads into a single UPM archive. The aggregate package starts from the checked-in source package and copies only validated `Runtime/Plugins/...` binary plus `.meta` payloads from platform jobs; it does not overlay full platform package trees.
 
+## Unity Editor/Player validation
+
+Static archive checks are not a substitute for Unity. Use `scripts/unity_validate.py` to generate a clean Unity project, install `org.nozzle-io.unity` through UPM as a `file:` dependency, run Editor-side import/compile/plugin importer checks, build a minimal Player, and verify that the expected `nozzle_unity` native plugin is present in the Player output.
+
+The script discovers Unity from `--unity`, then `UNITY_EDITOR` / `UNITY_EDITOR_PATH`, then known platform install paths. For a macOS first pass:
+
+```sh
+cmake -S . -B build/local-unity-native \
+  -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON \
+  -DNOZZLE_BUILD_EXAMPLES=OFF \
+  -DNOZZLE_BUILD_TESTS=OFF \
+  -DNOZZLE_INSTALL=OFF \
+  -DNOZZLE_UNITY_ARTIFACT_ROOT="$PWD/build/local-unity-artifact" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+cmake --build build/local-unity-native --target nozzle_unity_package_artifact --config Release
+
+python3 scripts/create_native_payload.py \
+  --platform macos \
+  --artifact-root build/local-unity-artifact \
+  --output-root build/local-unity-payload
+
+python3 scripts/unity_validate.py \
+  --target macos \
+  --native-payload build/local-unity-payload/native-payload/macos \
+  --project build/unity-validation/project
+```
+
+Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, package SHA, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
+
 A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
 
 ```sh

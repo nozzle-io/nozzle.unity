@@ -418,6 +418,7 @@ def check_native_bridge_sources() -> None:
         ROOT / "scripts" / "validate_native_payload.py",
         ROOT / "scripts" / "package_upm_tgz.py",
         ROOT / "scripts" / "validate_upm_tgz.py",
+        ROOT / "scripts" / "unity_validate.py",
         ROOT / "scripts" / "resolve_release_channel.py",
         ROOT / "scripts" / "publish_release_assets.py",
         ROOT / "scripts" / "unity_release_contract.py",
@@ -430,6 +431,14 @@ def check_native_bridge_sources() -> None:
     require_text(contract, "Windows dependency inspection requires dumpbin")
     require_text(contract, "runtime_supported")
     require_text(ROOT / "scripts" / "validate_upm_tgz.py", "Static UPM archive / manifest preflight")
+    unity_validate = ROOT / "scripts" / "unity_validate.py"
+    require_text(unity_validate, "UNITY_EDITOR")
+    require_text(unity_validate, "UNITY_EDITOR_PATH")
+    require_text(unity_validate, "PackageInfo.FindForAssetPath")
+    require_text(unity_validate, "BuildPipeline.BuildPlayer")
+    require_text(unity_validate, "PluginImporter")
+    require_text(unity_validate, "native_plugin_matches")
+    require_text(unity_validate, "NOZZLE_UNITY_VALIDATION_RESULT")
 
 
 def run_cmake_configure(build_dir: Path, definitions: list[str]) -> None:
