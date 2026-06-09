@@ -28,6 +28,7 @@ typedef enum nozzle_unity_status {
     nozzle_unity_status_unknown = 1,
     nozzle_unity_status_invalid_argument = 2,
     nozzle_unity_status_unsupported = 3,
+    nozzle_unity_status_busy = 4,
 } nozzle_unity_status;
 
 typedef struct nozzle_unity_sender_t nozzle_unity_sender_t;

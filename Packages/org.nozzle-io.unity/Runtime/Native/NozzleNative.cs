@@ -13,6 +13,7 @@ namespace Nozzle
         internal const int STATUS_UNKNOWN = 1;
         internal const int STATUS_INVALID_ARGUMENT = 2;
         internal const int STATUS_UNSUPPORTED = 3;
+        internal const int STATUS_BUSY = 4;
         internal const int EVENT_SENDER_PUBLISH_NATIVE_TEXTURE = 0x4E5A0001;
         internal const int EVENT_RECEIVER_ACQUIRE_AND_COPY_NATIVE_TEXTURE = 0x4E5A0002;
 

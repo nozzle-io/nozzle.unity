@@ -270,7 +270,7 @@ namespace Nozzle
             return true;
         }
 
-        internal static void CancelSenderOperations(NozzleNative.NozzleSender* sender, ref PendingOperation pendingOperation)
+        internal static bool CancelSenderOperations(NozzleNative.NozzleSender* sender, ref PendingOperation pendingOperation)
         {
             try
             {
@@ -284,10 +284,13 @@ namespace Nozzle
             {
                 NozzleRuntimeSupport.LogNativeLoadFailure(exception);
             }
-            ReleaseOperation(ref pendingOperation);
+
+            if (!pendingOperation.IsActive) return true;
+            TryPollOperation(ref pendingOperation, out _);
+            return !pendingOperation.IsActive;
         }
 
-        internal static void CancelReceiverOperations(NozzleNative.NozzleReceiver* receiver, ref PendingOperation pendingOperation)
+        internal static bool CancelReceiverOperations(NozzleNative.NozzleReceiver* receiver, ref PendingOperation pendingOperation)
         {
             try
             {
@@ -301,20 +304,30 @@ namespace Nozzle
             {
                 NozzleRuntimeSupport.LogNativeLoadFailure(exception);
             }
-            ReleaseOperation(ref pendingOperation);
+
+            if (!pendingOperation.IsActive) return true;
+            TryPollOperation(ref pendingOperation, out _);
+            return !pendingOperation.IsActive;
         }
 
-        internal static void ReleaseOperation(ref PendingOperation pendingOperation)
+        internal static bool ReleaseOperation(ref PendingOperation pendingOperation)
         {
             if (!pendingOperation.IsActive)
             {
                 pendingOperation.Clear();
-                return;
+                return true;
             }
 
             try
             {
-                NozzleNative.nozzle_unity_operation_release(pendingOperation.OperationId);
+                int ec = NozzleNative.nozzle_unity_operation_release(pendingOperation.OperationId);
+                if (ec == NozzleNative.STATUS_BUSY)
+                {
+                    Debug.LogWarning(
+                        $"[Nozzle] bridge operation release deferred because the operation is still queued/running: op={pendingOperation.OperationId}"
+                    );
+                    return false;
+                }
             }
             catch (DllNotFoundException exception)
             {
@@ -325,6 +338,7 @@ namespace Nozzle
                 NozzleRuntimeSupport.LogNativeLoadFailure(exception);
             }
             pendingOperation.Clear();
+            return true;
         }
 
         static void WarnRenderEventUnavailable(string operationName, NozzleRuntimeSupport.BridgeSupport support)

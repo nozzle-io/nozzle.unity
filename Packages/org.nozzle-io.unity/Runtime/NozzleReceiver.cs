@@ -81,9 +81,15 @@ namespace Nozzle
 
         void OnDisable()
         {
-            NozzleRenderThreadDispatch.CancelReceiverOperations(handle, ref pendingAcquireCopy);
+            bool operationTerminal = NozzleRenderThreadDispatch.CancelReceiverOperations(handle, ref pendingAcquireCopy);
 
             if (!initialized) return;
+            if (!operationTerminal)
+            {
+                connected = false;
+                Debug.LogWarning("[Nozzle] Receiver destroy deferred because a render-thread operation still references the native receiver handle.");
+                return;
+            }
 
             NozzleNative.nozzle_unity_receiver_destroy(handle);
             handle = null;

@@ -30,12 +30,13 @@ struct queued_operation {
     int32_t texture_format = 0;
     uint64_t timeout_ms = 0;
     uint64_t frame_index = 0;
+    bool cancel_requested = false;
     char status_message[NOZZLE_UNITY_STATUS_MESSAGE_CAPACITY]{};
 };
 
 std::mutex queue_mutex;
-std::deque<queued_operation> pending_operations;
-std::vector<queued_operation> retained_operations;
+std::deque<nozzle_unity_operation_id_t> pending_operation_ids;
+std::vector<queued_operation> operation_records;
 nozzle_unity_operation_id_t next_operation_id = 1;
 uint64_t total_queued_operations = 0;
 uint64_t total_running_operations = 0;
@@ -129,6 +130,30 @@ void copy_operation_status(const queued_operation &operation, nozzle_unity_opera
     );
 }
 
+queued_operation *find_operation_record(nozzle_unity_operation_id_t operation_id) {
+    for(queued_operation &operation : operation_records) {
+        if(operation.operation_id == operation_id) {
+            return &operation;
+        }
+    }
+    return nullptr;
+}
+
+const queued_operation *find_operation_record_const(nozzle_unity_operation_id_t operation_id) {
+    for(const queued_operation &operation : operation_records) {
+        if(operation.operation_id == operation_id) {
+            return &operation;
+        }
+    }
+    return nullptr;
+}
+
+bool operation_matches_handle(const queued_operation &operation, nozzle_unity_sender_t *sender, nozzle_unity_receiver_t *receiver) {
+    const bool sender_matches = sender != nullptr && operation.sender == sender;
+    const bool receiver_matches = receiver != nullptr && operation.receiver == receiver;
+    return sender_matches || receiver_matches;
+}
+
 int32_t enqueue_operation(queued_operation operation, nozzle_unity_operation_id_t *out_operation_id) {
     if(out_operation_id == nullptr) {
         return (int32_t)nozzle_unity_status_invalid_argument;
@@ -151,7 +176,8 @@ int32_t enqueue_operation(queued_operation operation, nozzle_unity_operation_id_
         sizeof(operation.status_message),
         "queued for Unity render-thread event processing"
     );
-    pending_operations.push_back(operation);
+    operation_records.push_back(operation);
+    pending_operation_ids.push_back(operation.operation_id);
     total_queued_operations += 1;
     last_operation_id = operation.operation_id;
     *out_operation_id = operation.operation_id;
@@ -160,79 +186,114 @@ int32_t enqueue_operation(queued_operation operation, nozzle_unity_operation_id_
 
 int32_t cancel_matching_operations(nozzle_unity_sender_t *sender, nozzle_unity_receiver_t *receiver) {
     std::lock_guard<std::mutex> lock(queue_mutex);
-    std::deque<queued_operation> kept_operations;
-    while(!pending_operations.empty()) {
-        queued_operation operation = pending_operations.front();
-        pending_operations.pop_front();
-        const bool sender_matches = sender != nullptr && operation.sender == sender;
-        const bool receiver_matches = receiver != nullptr && operation.receiver == receiver;
-        if(sender_matches || receiver_matches) {
+    for(queued_operation &operation : operation_records) {
+        if(!operation_matches_handle(operation, sender, receiver)) {
+            continue;
+        }
+        if(operation.state == (int32_t)nozzle_unity_operation_state_queued) {
             complete_operation(
                 operation,
                 (int32_t)nozzle_unity_operation_state_canceled,
                 (int32_t)nozzle_unity_status_unsupported,
                 "operation canceled before render-thread execution"
             );
-            retained_operations.push_back(operation);
-        } else {
-            kept_operations.push_back(operation);
+        } else if(operation.state == (int32_t)nozzle_unity_operation_state_running) {
+            operation.cancel_requested = true;
+            write_status_message(
+                operation.status_message,
+                sizeof(operation.status_message),
+                "cancel requested while render-thread operation is running"
+            );
+            remember_queue_status(
+                "cancel requested while render-thread operation is running",
+                (int32_t)nozzle_unity_status_busy,
+                operation.operation_id
+            );
         }
     }
-    pending_operations.swap(kept_operations);
     return (int32_t)nozzle_unity_status_ok;
 }
 
 } // namespace
 
 void nozzle_unity_process_render_event(int32_t event_id) {
-    std::deque<queued_operation> operations_to_process;
+    std::vector<nozzle_unity_operation_id_t> operation_ids_to_process;
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
-        std::deque<queued_operation> kept_operations;
-        while(!pending_operations.empty()) {
-            queued_operation operation = pending_operations.front();
-            pending_operations.pop_front();
+        std::deque<nozzle_unity_operation_id_t> kept_operation_ids;
+        while(!pending_operation_ids.empty()) {
+            const nozzle_unity_operation_id_t operation_id = pending_operation_ids.front();
+            pending_operation_ids.pop_front();
+            queued_operation *operation = find_operation_record(operation_id);
+            if(operation == nullptr) {
+                continue;
+            }
             const bool sender_event = event_id == NOZZLE_UNITY_EVENT_SENDER_PUBLISH_NATIVE_TEXTURE
-                && operation.kind == (int32_t)nozzle_unity_operation_kind_sender_publish_native_texture;
+                && operation->kind == (int32_t)nozzle_unity_operation_kind_sender_publish_native_texture;
             const bool receiver_event = event_id == NOZZLE_UNITY_EVENT_RECEIVER_ACQUIRE_AND_COPY_NATIVE_TEXTURE
-                && operation.kind == (int32_t)nozzle_unity_operation_kind_receiver_acquire_and_copy_native_texture;
-            if(sender_event || receiver_event) {
-                operation.state = (int32_t)nozzle_unity_operation_state_running;
+                && operation->kind == (int32_t)nozzle_unity_operation_kind_receiver_acquire_and_copy_native_texture;
+            if((sender_event || receiver_event)
+                && operation->state == (int32_t)nozzle_unity_operation_state_queued) {
+                operation->state = (int32_t)nozzle_unity_operation_state_running;
+                operation->result = (int32_t)nozzle_unity_status_busy;
+                write_status_message(
+                    operation->status_message,
+                    sizeof(operation->status_message),
+                    "render-thread operation is running"
+                );
                 total_running_operations += 1;
-                operations_to_process.push_back(operation);
-            } else {
-                kept_operations.push_back(operation);
+                operation_ids_to_process.push_back(operation_id);
+            } else if(operation->state == (int32_t)nozzle_unity_operation_state_queued) {
+                kept_operation_ids.push_back(operation_id);
             }
         }
-        pending_operations.swap(kept_operations);
+        pending_operation_ids.swap(kept_operation_ids);
     }
 
-    for(queued_operation &operation : operations_to_process) {
+    for(nozzle_unity_operation_id_t operation_id : operation_ids_to_process) {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        queued_operation *operation = find_operation_record(operation_id);
+        if(operation == nullptr) {
+            continue;
+        }
         complete_operation(
-            operation,
+            *operation,
             (int32_t)nozzle_unity_operation_state_failed,
             (int32_t)nozzle_unity_status_unsupported,
-            "render-thread queue drained, but backend native texture operation is not implemented yet"
+            operation->cancel_requested
+                ? "render-thread operation finished after cancel request; backend native texture operation is not implemented yet"
+                : "render-thread queue drained, but backend native texture operation is not implemented yet"
         );
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        retained_operations.push_back(operation);
     }
 }
+
 
 void nozzle_unity_cancel_all_operations(const char *message) {
     std::lock_guard<std::mutex> lock(queue_mutex);
-    while(!pending_operations.empty()) {
-        queued_operation operation = pending_operations.front();
-        pending_operations.pop_front();
-        complete_operation(
-            operation,
-            (int32_t)nozzle_unity_operation_state_canceled,
-            (int32_t)nozzle_unity_status_unsupported,
-            message != nullptr ? message : "operation canceled by Unity graphics shutdown"
-        );
-        retained_operations.push_back(operation);
+    for(queued_operation &operation : operation_records) {
+        if(operation.state == (int32_t)nozzle_unity_operation_state_queued) {
+            complete_operation(
+                operation,
+                (int32_t)nozzle_unity_operation_state_canceled,
+                (int32_t)nozzle_unity_status_unsupported,
+                message != nullptr ? message : "operation canceled by Unity graphics shutdown"
+            );
+        } else if(operation.state == (int32_t)nozzle_unity_operation_state_running) {
+            operation.cancel_requested = true;
+            write_status_message(
+                operation.status_message,
+                sizeof(operation.status_message),
+                message != nullptr ? message : "cancel requested by Unity graphics shutdown"
+            );
+            remember_queue_status(
+                message != nullptr ? message : "cancel requested by Unity graphics shutdown",
+                (int32_t)nozzle_unity_status_busy,
+                operation.operation_id
+            );
+        }
     }
 }
+
 
 extern "C" {
 
@@ -426,17 +487,10 @@ NOZZLE_UNITY_API int32_t nozzle_unity_operation_get_status(
     }
 
     std::lock_guard<std::mutex> lock(queue_mutex);
-    for(const queued_operation &operation : pending_operations) {
-        if(operation.operation_id == operation_id) {
-            copy_operation_status(operation, out_status);
-            return (int32_t)nozzle_unity_status_ok;
-        }
-    }
-    for(const queued_operation &operation : retained_operations) {
-        if(operation.operation_id == operation_id) {
-            copy_operation_status(operation, out_status);
-            return (int32_t)nozzle_unity_status_ok;
-        }
+    const queued_operation *operation = find_operation_record_const(operation_id);
+    if(operation != nullptr) {
+        copy_operation_status(*operation, out_status);
+        return (int32_t)nozzle_unity_status_ok;
     }
 
     memset(out_status, 0, sizeof(nozzle_unity_operation_status));
@@ -457,14 +511,20 @@ NOZZLE_UNITY_API int32_t nozzle_unity_operation_release(nozzle_unity_operation_i
     }
 
     std::lock_guard<std::mutex> lock(queue_mutex);
-    for(auto it = retained_operations.begin(); it != retained_operations.end(); ++it) {
-        if(it->operation_id == operation_id) {
-            retained_operations.erase(it);
-            return (int32_t)nozzle_unity_status_ok;
+    for(auto it = operation_records.begin(); it != operation_records.end(); ++it) {
+        if(it->operation_id != operation_id) {
+            continue;
         }
+        if(it->state == (int32_t)nozzle_unity_operation_state_queued
+            || it->state == (int32_t)nozzle_unity_operation_state_running) {
+            return (int32_t)nozzle_unity_status_busy;
+        }
+        operation_records.erase(it);
+        return (int32_t)nozzle_unity_status_ok;
     }
     return (int32_t)nozzle_unity_status_unknown;
 }
+
 
 NOZZLE_UNITY_API int32_t nozzle_unity_queue_get_diagnostics(nozzle_unity_queue_diagnostics *out_diagnostics) {
     if(out_diagnostics == nullptr) {

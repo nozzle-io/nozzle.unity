@@ -70,9 +70,14 @@ namespace Nozzle
 
         void OnDisable()
         {
-            NozzleRenderThreadDispatch.CancelSenderOperations(handle, ref pendingPublish);
+            bool operationTerminal = NozzleRenderThreadDispatch.CancelSenderOperations(handle, ref pendingPublish);
 
             if (!initialized) return;
+            if (!operationTerminal)
+            {
+                Debug.LogWarning("[Nozzle] Sender destroy deferred because a render-thread operation still references the native sender handle.");
+                return;
+            }
 
             NozzleNative.nozzle_unity_sender_destroy(handle);
             handle = null;

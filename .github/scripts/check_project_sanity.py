@@ -215,6 +215,8 @@ def check_runtime_sources() -> None:
     require_text(dispatch, "nozzle_unity_operation_release")
     require_text(dispatch, "nozzle_unity_sender_cancel_operations")
     require_text(dispatch, "nozzle_unity_receiver_cancel_operations")
+    require_text(dispatch, "STATUS_BUSY")
+    require_text(dispatch, "release deferred")
 
     for component in [
         RUNTIME_ROOT / "NozzleSender.cs",
@@ -346,8 +348,10 @@ def check_native_bridge_sources() -> None:
     require_text(unity_source, "nozzle_unity_cancel_all_operations")
 
     common_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_common.cpp"
-    require_text(common_source, "pending_operations")
-    require_text(common_source, "retained_operations")
+    require_text(common_source, "pending_operation_ids")
+    require_text(common_source, "operation_records")
+    require_text(common_source, "find_operation_record")
+    require_text(common_source, "nozzle_unity_status_busy")
     require_text(common_source, "nozzle_unity_process_render_event")
     require_text(common_source, "nozzle_unity_cancel_all_operations")
     require_text(common_source, "render-thread queue drained")
@@ -446,6 +450,32 @@ class NativeSupportInfo(ctypes.Structure):
     ]
 
 
+class NativeSenderPublishDesc(ctypes.Structure):
+    _fields_ = [
+        ("sender", ctypes.c_void_p),
+        ("native_texture", ctypes.c_void_p),
+        ("width", ctypes.c_uint32),
+        ("height", ctypes.c_uint32),
+        ("texture_format", ctypes.c_int32),
+        ("managed_generation", ctypes.c_uint64),
+    ]
+
+
+class NativeOperationStatus(ctypes.Structure):
+    _fields_ = [
+        ("operation_id", ctypes.c_uint64),
+        ("managed_generation", ctypes.c_uint64),
+        ("kind", ctypes.c_int32),
+        ("state", ctypes.c_int32),
+        ("result", ctypes.c_int32),
+        ("frame_index", ctypes.c_uint64),
+        ("width", ctypes.c_uint32),
+        ("height", ctypes.c_uint32),
+        ("texture_format", ctypes.c_int32),
+        ("status_message", ctypes.c_char * 256),
+    ]
+
+
 def load_native_library(native_plugin: Path) -> ctypes.CDLL:
     try:
         if platform.system() == "Windows":
@@ -462,6 +492,11 @@ def check_exported_symbols(native_plugin: Path, library: ctypes.CDLL) -> None:
         "nozzle_unity_get_render_event_func",
         "nozzle_unity_sender_create",
         "nozzle_unity_sender_publish_native_texture",
+        "nozzle_unity_sender_enqueue_publish_native_texture",
+        "nozzle_unity_sender_cancel_operations",
+        "nozzle_unity_operation_get_status",
+        "nozzle_unity_operation_release",
+        "nozzle_unity_queue_get_diagnostics",
         "nozzle_unity_receiver_create",
         "nozzle_unity_receiver_acquire_frame",
         "nozzle_unity_frame_get_info",
@@ -506,6 +541,75 @@ def check_native_support_contract(native_plugin: Path, library: ctypes.CDLL) -> 
         f"direct_nozzle_c_abi_available={support.direct_nozzle_c_abi_available}, "
         f"message={message!r}"
     )
+
+
+def check_operation_lifetime_contract(native_plugin: Path, library: ctypes.CDLL) -> None:
+    enqueue = library.nozzle_unity_sender_enqueue_publish_native_texture
+    enqueue.argtypes = [ctypes.POINTER(NativeSenderPublishDesc), ctypes.POINTER(ctypes.c_uint64)]
+    enqueue.restype = ctypes.c_int32
+
+    get_status = library.nozzle_unity_operation_get_status
+    get_status.argtypes = [ctypes.c_uint64, ctypes.POINTER(NativeOperationStatus)]
+    get_status.restype = ctypes.c_int32
+
+    release = library.nozzle_unity_operation_release
+    release.argtypes = [ctypes.c_uint64]
+    release.restype = ctypes.c_int32
+
+    cancel = library.nozzle_unity_sender_cancel_operations
+    cancel.argtypes = [ctypes.c_void_p]
+    cancel.restype = ctypes.c_int32
+
+    fake_sender = ctypes.c_void_p(0x1)
+    desc = NativeSenderPublishDesc(
+        sender=fake_sender,
+        native_texture=ctypes.c_void_p(0x2),
+        width=16,
+        height=16,
+        texture_format=4,
+        managed_generation=123,
+    )
+    operation_id = ctypes.c_uint64(0)
+    status = enqueue(ctypes.byref(desc), ctypes.byref(operation_id))
+    if status != 0 or operation_id.value == 0:
+        fail(f"operation lifetime enqueue failed for {display_path(native_plugin)}: status={status}, op={operation_id.value}")
+
+    op_status = NativeOperationStatus()
+    status = get_status(operation_id.value, ctypes.byref(op_status))
+    if status != 0 or op_status.state != 1:
+        fail(f"queued operation must remain queryable before release: status={status}, state={op_status.state}")
+
+    status = release(operation_id.value)
+    if status != 4:
+        fail(f"release of queued operation must return busy instead of dropping lifetime state, got {status}")
+
+    op_status_after_busy = NativeOperationStatus()
+    status = get_status(operation_id.value, ctypes.byref(op_status_after_busy))
+    if status != 0 or op_status_after_busy.state != 1:
+        fail(
+            "queued operation disappeared after busy release: "
+            f"status={status}, state={op_status_after_busy.state}"
+        )
+
+    status = cancel(fake_sender)
+    if status != 0:
+        fail(f"cancel of queued operation failed: status={status}")
+
+    canceled_status = NativeOperationStatus()
+    status = get_status(operation_id.value, ctypes.byref(canceled_status))
+    if status != 0 or canceled_status.state != 5:
+        fail(f"canceled operation must remain queryable until explicit release: status={status}, state={canceled_status.state}")
+
+    status = release(operation_id.value)
+    if status != 0:
+        fail(f"release of terminal operation failed: status={status}")
+
+    released_status = NativeOperationStatus()
+    status = get_status(operation_id.value, ctypes.byref(released_status))
+    if status == 0:
+        fail("released terminal operation must not remain queryable after release")
+
+    print(f"Operation lifetime contract: queued release busy, cancel terminal, release clears for {display_path(native_plugin)}")
 
 
 def inspect_loader_dependencies(native_plugin: Path) -> None:
@@ -585,6 +689,7 @@ def check_native_artifact(artifact_root: Path) -> None:
     library = load_native_library(native_plugin)
     check_exported_symbols(native_plugin, library)
     check_native_support_contract(native_plugin, library)
+    check_operation_lifetime_contract(native_plugin, library)
     inspect_loader_dependencies(native_plugin)
 
     package_readme = artifact_package_root / "README.md"
