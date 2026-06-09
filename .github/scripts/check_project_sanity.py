@@ -217,6 +217,13 @@ def check_runtime_sources() -> None:
     require_text(dispatch, "nozzle_unity_receiver_cancel_operations")
     require_text(dispatch, "STATUS_BUSY")
     require_text(dispatch, "release deferred")
+    require_text(dispatch, "RegisterDeferredSenderDestroy")
+    require_text(dispatch, "RegisterDeferredReceiverDestroy")
+    require_text(dispatch, "NozzleDeferredCleanupHost")
+    require_text(dispatch, "DrainDeferredDestroys")
+    require_text(dispatch, "deferredDestroys")
+    require_text(dispatch, "DestroyDeferredHandle")
+    require_text(dispatch, "DontDestroyOnLoad")
 
     for component in [
         RUNTIME_ROOT / "NozzleSender.cs",
@@ -240,6 +247,11 @@ def check_runtime_sources() -> None:
         fail("NozzleSender.Update must enqueue render-thread operations, not call publish_native_texture directly")
     if "TryEnqueueSenderPublish" not in sender_update:
         fail("NozzleSender.Update must enqueue sender publish operations")
+    sender_disable = extract_method_body(sender_text, "void OnDisable()")
+    if "RegisterDeferredSenderDestroy(handle, ref pendingPublish)" not in sender_disable:
+        fail("NozzleSender.OnDisable must hand busy destroy cleanup to the static deferred cleanup owner")
+    if "handle = null;" not in sender_disable or "initialized = false;" not in sender_disable:
+        fail("NozzleSender.OnDisable must detach disabled components from deferred native handles")
 
     receiver_text = (RUNTIME_ROOT / "NozzleReceiver.cs").read_text(encoding="utf-8")
     receiver_update = extract_method_body(receiver_text, "void Update()")
@@ -254,6 +266,11 @@ def check_runtime_sources() -> None:
             fail(f"NozzleReceiver.Update must not call blocking/direct native frame symbol {symbol}")
     if "TryEnqueueReceiverAcquireAndCopy" not in receiver_update:
         fail("NozzleReceiver.Update must enqueue receiver acquire/copy operations")
+    receiver_disable = extract_method_body(receiver_text, "void OnDisable()")
+    if "RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy)" not in receiver_disable:
+        fail("NozzleReceiver.OnDisable must hand busy destroy cleanup to the static deferred cleanup owner")
+    if "handle = null;" not in receiver_disable or "initialized = false;" not in receiver_disable:
+        fail("NozzleReceiver.OnDisable must detach disabled components from deferred native handles")
     require_text(dispatch, "TimeoutMs = 0", "non-blocking render-thread receiver enqueue")
 
 

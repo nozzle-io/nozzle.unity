@@ -75,7 +75,10 @@ namespace Nozzle
             if (!initialized) return;
             if (!operationTerminal)
             {
-                Debug.LogWarning("[Nozzle] Sender destroy deferred because a render-thread operation still references the native sender handle.");
+                Debug.LogWarning("[Nozzle] Sender destroy handed to deferred cleanup because a render-thread operation still references the native sender handle.");
+                NozzleRenderThreadDispatch.RegisterDeferredSenderDestroy(handle, ref pendingPublish);
+                handle = null;
+                initialized = false;
                 return;
             }
 

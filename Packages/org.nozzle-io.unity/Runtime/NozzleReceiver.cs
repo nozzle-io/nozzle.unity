@@ -87,7 +87,10 @@ namespace Nozzle
             if (!operationTerminal)
             {
                 connected = false;
-                Debug.LogWarning("[Nozzle] Receiver destroy deferred because a render-thread operation still references the native receiver handle.");
+                Debug.LogWarning("[Nozzle] Receiver destroy handed to deferred cleanup because a render-thread operation still references the native receiver handle.");
+                NozzleRenderThreadDispatch.RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy);
+                handle = null;
+                initialized = false;
                 return;
             }
 

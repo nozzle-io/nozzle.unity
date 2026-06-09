@@ -341,6 +341,109 @@ namespace Nozzle
             return true;
         }
 
+        internal static void RegisterDeferredSenderDestroy(NozzleNative.NozzleSender* sender, ref PendingOperation pendingOperation)
+        {
+            if (sender == null)
+            {
+                pendingOperation.Clear();
+                return;
+            }
+            RegisterDeferredDestroy(DeferredDestroyKind.Sender, (IntPtr)sender, ref pendingOperation);
+        }
+
+        internal static void RegisterDeferredReceiverDestroy(NozzleNative.NozzleReceiver* receiver, ref PendingOperation pendingOperation)
+        {
+            if (receiver == null)
+            {
+                pendingOperation.Clear();
+                return;
+            }
+            RegisterDeferredDestroy(DeferredDestroyKind.Receiver, (IntPtr)receiver, ref pendingOperation);
+        }
+
+        static void RegisterDeferredDestroy(DeferredDestroyKind kind, IntPtr handle, ref PendingOperation pendingOperation)
+        {
+            EnsureDeferredCleanupHost();
+            deferredDestroys.Add(new DeferredDestroyRecord
+            {
+                Kind = kind,
+                Handle = handle,
+                PendingOperation = pendingOperation,
+            });
+            pendingOperation.Clear();
+        }
+
+        static void EnsureDeferredCleanupHost()
+        {
+            if (deferredCleanupHost != null) return;
+
+            var hostObject = new GameObject("Nozzle Deferred Cleanup");
+            hostObject.hideFlags = HideFlags.HideAndDontSave;
+            UnityEngine.Object.DontDestroyOnLoad(hostObject);
+            deferredCleanupHost = hostObject.AddComponent<NozzleDeferredCleanupHost>();
+        }
+
+        internal static void DrainDeferredDestroys()
+        {
+            for (int index = deferredDestroys.Count - 1; index >= 0; index--)
+            {
+                var record = deferredDestroys[index];
+                if (record.PendingOperation.IsActive)
+                {
+                    TryPollOperation(ref record.PendingOperation, out _);
+                }
+
+                if (record.PendingOperation.IsActive)
+                {
+                    deferredDestroys[index] = record;
+                    continue;
+                }
+
+                DestroyDeferredHandle(record);
+                deferredDestroys.RemoveAt(index);
+            }
+        }
+
+        static void DestroyDeferredHandle(DeferredDestroyRecord record)
+        {
+            try
+            {
+                if (record.Kind == DeferredDestroyKind.Sender)
+                {
+                    NozzleNative.nozzle_unity_sender_destroy((NozzleNative.NozzleSender*)record.Handle);
+                }
+                else if (record.Kind == DeferredDestroyKind.Receiver)
+                {
+                    NozzleNative.nozzle_unity_receiver_destroy((NozzleNative.NozzleReceiver*)record.Handle);
+                }
+            }
+            catch (DllNotFoundException exception)
+            {
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                NozzleRuntimeSupport.LogNativeLoadFailure(exception);
+            }
+        }
+
+        enum DeferredDestroyKind
+        {
+            Sender,
+            Receiver,
+        }
+
+        struct DeferredDestroyRecord
+        {
+            public DeferredDestroyKind Kind;
+            public IntPtr Handle;
+            public PendingOperation PendingOperation;
+        }
+
+        static readonly System.Collections.Generic.List<DeferredDestroyRecord> deferredDestroys =
+            new System.Collections.Generic.List<DeferredDestroyRecord>();
+        static NozzleDeferredCleanupHost deferredCleanupHost;
+
         static void WarnRenderEventUnavailable(string operationName, NozzleRuntimeSupport.BridgeSupport support)
         {
             if (warnedRenderEventUnavailable) return;
@@ -358,6 +461,14 @@ namespace Nozzle
             int length = 0;
             while (length < capacity && ptr[length] != 0) length++;
             return Encoding.UTF8.GetString(ptr, length);
+        }
+    }
+
+    internal sealed class NozzleDeferredCleanupHost : MonoBehaviour
+    {
+        void Update()
+        {
+            NozzleRenderThreadDispatch.DrainDeferredDestroys();
         }
     }
 }
