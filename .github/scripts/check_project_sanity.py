@@ -434,10 +434,14 @@ def check_native_bridge_sources() -> None:
     unity_validate = ROOT / "scripts" / "unity_validate.py"
     require_text(unity_validate, "UNITY_EDITOR")
     require_text(unity_validate, "UNITY_EDITOR_PATH")
+    require_text(unity_validate, "--package-source")
+    require_text(unity_validate, "--validation-scope")
+    require_text(unity_validate, "Sample.FindByPackage")
     require_text(unity_validate, "PackageInfo.FindForAssetPath")
     require_text(unity_validate, "BuildPipeline.BuildPlayer")
     require_text(unity_validate, "PluginImporter")
     require_text(unity_validate, "native_plugin_matches")
+    require_text(unity_validate, "Unity log tail")
     require_text(unity_validate, "NOZZLE_UNITY_VALIDATION_RESULT")
 
 

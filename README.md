@@ -75,12 +75,37 @@ python3 scripts/create_native_payload.py \
   --output-root build/local-unity-payload
 
 python3 scripts/unity_validate.py \
+  --package-source file \
+  --validation-scope player \
   --target macos \
   --native-payload build/local-unity-payload/native-payload/macos \
   --project build/unity-validation/project
 ```
 
-Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, package SHA, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
+The Git UPM source URL is source-only in this repository and does not contain the generated native plugin payload. Validate it as an import/compile/sample-import contract, not as Player/native-plugin inclusion:
+
+```sh
+python3 scripts/unity_validate.py \
+  --package-source git \
+  --validation-scope import \
+  --target macos \
+  --project build/unity-validation-git/project
+```
+
+Validate packaged release archives with Player/native-plugin inclusion once a `.tgz` exists:
+
+```sh
+python3 scripts/unity_validate.py \
+  --package-source tgz \
+  --validation-scope player \
+  --target macos \
+  --tgz build/upm/org.nozzle-io.unity-latest-local.tgz \
+  --project build/unity-validation-tgz/project
+```
+
+The validation script imports all declared package samples through Unity's `Sample` API. `--validation-scope import` stops after UPM import, script compilation, unsupported-graphics diagnostics, and sample import. `--validation-scope player` additionally requires the native bridge diagnostics, `PluginImporter` Editor/Player compatibility, a successful minimal Player build, and native plugin inclusion in the Player output.
+
+Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, package SHA, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player when applicable. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
 
 A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
 

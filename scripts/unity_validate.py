@@ -43,6 +43,7 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.UI;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
@@ -88,17 +89,36 @@ namespace Nozzle.UnityValidation
             }
         }
 
+        static string ImportSamples(PackageInfo packageInfo)
+        {
+            Sample[] samples = Sample.FindByPackage(packageInfo.name, packageInfo.version);
+            Require(samples != null && samples.Length >= 3, "expected at least three package samples");
+            List<string> imported = new List<string>();
+            foreach (Sample sample in samples)
+            {
+                bool ok = sample.Import(Sample.ImportOptions.OverridePreviousImports);
+                Require(ok, "failed to import sample: " + sample.displayName);
+                string importedPath = sample.importedPath.Replace('\\', '/');
+                Require(!String.IsNullOrEmpty(importedPath), "sample imported path is empty: " + sample.displayName);
+                Require(Directory.Exists(importedPath), "sample imported directory is missing: " + importedPath);
+                imported.Add(sample.displayName + "=>" + importedPath);
+            }
+            return String.Join(";", imported.ToArray());
+        }
+
         public static void ValidateAndBuild()
         {
             string buildTargetName = Arg("-nozzleValidationBuildTarget", "StandaloneOSX");
             string buildPath = Arg("-nozzleValidationBuildPath", "Build/NozzleUnityValidation.app");
             string reportPath = Arg("-nozzleValidationReport", "Logs/nozzle-unity-validation.json");
             string expectedPluginPath = Arg("-nozzleValidationExpectedPlugin", "").Replace('\\', '/');
+            string validationScope = Arg("-nozzleValidationScope", "player");
 
             BuildTarget buildTarget = (BuildTarget)Enum.Parse(typeof(BuildTarget), buildTargetName);
             PackageInfo packageInfo = PackageInfo.FindForAssetPath("Packages/org.nozzle-io.unity/package.json");
             Require(packageInfo != null, "org.nozzle-io.unity package was not imported by Unity Package Manager");
             Require(packageInfo.name == "org.nozzle-io.unity", "imported package name mismatch: " + packageInfo.name);
+            string importedSamples = ImportSamples(packageInfo);
 
             Type supportType = typeof(NozzleRuntimeSupport);
             Require(supportType.FullName == "Nozzle.NozzleRuntimeSupport", "Nozzle runtime assembly did not compile to the expected type");
@@ -106,6 +126,22 @@ namespace Nozzle.UnityValidation
             Require(NozzleRuntimeSupport.IsTargetGraphicsApi(GraphicsDeviceType.Direct3D11), "D3D11 must be an explicitly recognized target graphics API");
             Require(!NozzleRuntimeSupport.IsTargetGraphicsApi(GraphicsDeviceType.OpenGLES3), "OpenGLES3 must remain an explicit unsupported graphics API");
             Require(NozzleRuntimeSupport.GetRuntimeLimitations().Contains("no verified Unity Editor/Player runtime support"), "runtime limitations must stay explicit");
+
+            if (validationScope == "import")
+            {
+                WriteReport(reportPath, new Dictionary<string, string>
+                {
+                    {"unity_version", Application.unityVersion},
+                    {"package_name", packageInfo.name},
+                    {"package_version", packageInfo.version},
+                    {"package_asset_path", packageInfo.assetPath},
+                    {"imported_samples", importedSamples},
+                    {"validation_scope", validationScope},
+                    {"runtime_supported", "not_checked_import_scope"},
+                });
+                Debug.Log("NOZZLE_UNITY_VALIDATION_PASS package=" + packageInfo.name + " unity=" + Application.unityVersion + " scope=" + validationScope);
+                return;
+            }
 
             NozzleRuntimeSupport.BridgeSupport support;
             bool supportCallOk = NozzleRuntimeSupport.TryGetBridgeSupport(out support);
@@ -144,6 +180,8 @@ namespace Nozzle.UnityValidation
                 {"package_name", packageInfo.name},
                 {"package_version", packageInfo.version},
                 {"package_asset_path", packageInfo.assetPath},
+                {"imported_samples", importedSamples},
+                {"validation_scope", validationScope},
                 {"build_target", buildTarget.ToString()},
                 {"build_path", buildPath},
                 {"expected_plugin_path", expectedPluginPath},
@@ -164,9 +202,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unity", "--unity-editor", dest="unity", type=Path, default=None, help="Path to Unity executable. Defaults to UNITY_EDITOR/UNITY_EDITOR_PATH or known install paths.")
     parser.add_argument("--target", choices=sorted(TARGETS), default="macos")
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT_ROOT)
-    parser.add_argument("--package-root", type=Path, default=SOURCE_PACKAGE_ROOT, help="Source package root to stage into the validation project.")
+    parser.add_argument("--package-source", choices=("file", "git", "tgz"), default="file", help="UPM dependency source to validate.")
+    parser.add_argument("--validation-scope", choices=("import", "player"), default="player", help="import checks UPM import/compile/sample import only; player also requires native plugin diagnostics, Player build, and plugin inclusion.")
+    parser.add_argument("--package-root", type=Path, default=SOURCE_PACKAGE_ROOT, help="Source package root to stage for --package-source file.")
     parser.add_argument("--staged-package", type=Path, default=DEFAULT_STAGED_PACKAGE_ROOT)
-    parser.add_argument("--native-payload", type=Path, default=None, help="Optional native-payload/<platform> directory or native-payload root to overlay into the staged package.")
+    parser.add_argument("--native-payload", type=Path, default=None, help="Optional native-payload/<platform> directory or native-payload root to overlay into the staged package for --package-source file.")
+    parser.add_argument("--git-url", default="https://github.com/nozzle-io/nozzle.unity.git?path=/Packages/org.nozzle-io.unity", help="UPM Git URL used by --package-source git.")
+    parser.add_argument("--tgz", type=Path, default=None, help="UPM .tgz package used by --package-source tgz.")
     parser.add_argument("--keep-project", action="store_true")
     parser.add_argument("--optional", action="store_true", help="Print PENDING and exit 0 instead of failing when Unity is unavailable.")
     return parser.parse_args()
@@ -206,12 +248,19 @@ def resolve_unity(explicit: Path | None, optional: bool) -> Path:
     fail(message)
 
 
-def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run(command: list[str], cwd: Path | None = None, log_path: Path | None = None) -> subprocess.CompletedProcess[str]:
     print("$ " + " ".join(str(part) for part in command))
     result = subprocess.run(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
     if result.returncode != 0:
+        if log_path:
+            print(f"Unity log path: {log_path}")
+            if log_path.is_file():
+                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+                print("--- Unity log tail ---")
+                print("\n".join(lines))
+                print("--- end Unity log tail ---")
         fail(f"command failed with exit code {result.returncode}: {' '.join(str(part) for part in command)}")
     return result
 
@@ -258,7 +307,7 @@ def overlay_native_payload(staged_package: Path, payload_dir: Path, expected_plu
             shutil.copy2(path, destination)
 
 
-def write_project(project: Path, staged_package: Path, target: dict[str, str], editor_version: str) -> tuple[Path, Path]:
+def write_project(project: Path, package_dependency: str, target: dict[str, str], editor_version: str) -> tuple[Path, Path]:
     if project.exists():
         shutil.rmtree(project)
     (project / "Assets" / "Editor").mkdir(parents=True, exist_ok=True)
@@ -267,7 +316,7 @@ def write_project(project: Path, staged_package: Path, target: dict[str, str], e
     (project / "Assets" / "Editor" / "NozzleUnityValidation.cs").write_text(EDITOR_SCRIPT, encoding="utf-8")
     manifest = {
         "dependencies": {
-            PACKAGE_NAME: f"file:{staged_package.as_posix()}",
+            PACKAGE_NAME: package_dependency,
             "com.unity.modules.imgui": "1.0.0",
             "com.unity.modules.jsonserialize": "1.0.0",
             "com.unity.modules.physics": "1.0.0",
@@ -278,6 +327,28 @@ def write_project(project: Path, staged_package: Path, target: dict[str, str], e
     build_path = project / "Build" / target["build_name"]
     report_path = project / "Logs" / "nozzle-unity-validation.json"
     return build_path, report_path
+
+
+def package_dependency(args: argparse.Namespace, contract_key: str) -> tuple[str, Path | None]:
+    if args.package_source == "file":
+        staged_package = args.staged_package.resolve()
+        copy_package_source(args.package_root.resolve(), staged_package)
+        if args.native_payload:
+            overlay_native_payload(staged_package, resolve_payload_dir(args.native_payload, contract_key), PLATFORMS[contract_key].plugin_relative_path)
+        return f"file:{staged_package.as_posix()}", staged_package
+    if args.package_source == "git":
+        if "?path=/Packages/org.nozzle-io.unity" not in args.git_url:
+            fail("--git-url must include ?path=/Packages/org.nozzle-io.unity for UPM package-path validation")
+        return args.git_url, None
+    if args.package_source == "tgz":
+        if not args.tgz:
+            fail("--package-source tgz requires --tgz")
+        tgz = args.tgz.resolve()
+        if not tgz.is_file():
+            fail(f"UPM tgz is missing: {tgz}")
+        return f"file:{tgz.as_posix()}", tgz
+    fail(f"unsupported package source: {args.package_source}")
+    return "", None
 
 
 def find_plugin_in_player(build_path: Path, plugin_name: str) -> list[str]:
@@ -295,18 +366,18 @@ def main() -> None:
     if platform.system() != target["host_system"]:
         fail(f"target {args.target} requires host {target['host_system']}, current host is {platform.system()}")
 
+    dependency, package_evidence_path = package_dependency(args, contract.key)
+    if args.validation_scope == "player" and args.package_source == "file":
+        expected_plugin = Path(package_evidence_path) / contract.plugin_relative_path
+        if not expected_plugin.is_file():
+            fail(f"expected native plugin is absent from staged package: {expected_plugin}. Build/create a native payload and pass --native-payload.")
+    if args.validation_scope == "player" and args.package_source == "git":
+        fail("--package-source git is source-only in this repository; use --validation-scope import, or validate Player/native plugin inclusion with --package-source file or tgz")
+
     unity = resolve_unity(args.unity, args.optional)
     version = unity_version(unity)
-    staged_package = args.staged_package.resolve()
-    copy_package_source(args.package_root.resolve(), staged_package)
-    if args.native_payload:
-        overlay_native_payload(staged_package, resolve_payload_dir(args.native_payload, contract.key), contract.plugin_relative_path)
-    expected_plugin = staged_package / contract.plugin_relative_path
-    if not expected_plugin.is_file():
-        fail(f"expected native plugin is absent from staged package: {expected_plugin}. Build/create a native payload and pass --native-payload.")
-
     project = args.project.resolve()
-    build_path, report_path = write_project(project, staged_package, target, version)
+    build_path, report_path = write_project(project, dependency, target, version)
     log_path = project / "Logs" / "Editor.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -322,14 +393,17 @@ def main() -> None:
         "-nozzleValidationBuildPath", str(build_path),
         "-nozzleValidationReport", str(report_path),
         "-nozzleValidationExpectedPlugin", f"Packages/{PACKAGE_NAME}/{contract.plugin_relative_path.as_posix()}",
+        "-nozzleValidationScope", args.validation_scope,
     ]
-    run(command)
+    run(command, log_path=log_path)
     if not report_path.is_file():
         fail(f"Unity validation report was not written: {report_path}")
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    matches = find_plugin_in_player(build_path, contract.plugin_relative_path.name)
-    if not matches:
-        fail(f"Player build output does not include {contract.plugin_relative_path.name} under {build_path}")
+    matches = []
+    if args.validation_scope == "player":
+        matches = find_plugin_in_player(build_path, contract.plugin_relative_path.name)
+        if not matches:
+            fail(f"Player build output does not include {contract.plugin_relative_path.name} under {build_path}")
 
     result: dict[str, Any] = {
         "result": "pass",
@@ -339,7 +413,10 @@ def main() -> None:
         "package_sha": current_git_sha(ROOT),
         "nozzle_sha": current_git_sha(ROOT / "nozzle"),
         "project_path": str(project),
-        "staged_package": str(staged_package),
+        "package_source": args.package_source,
+        "validation_scope": args.validation_scope,
+        "package_dependency": dependency,
+        "package_evidence_path": str(package_evidence_path) if package_evidence_path else "",
         "build_output": str(build_path),
         "editor_log": str(log_path),
         "unity_report": str(report_path),
