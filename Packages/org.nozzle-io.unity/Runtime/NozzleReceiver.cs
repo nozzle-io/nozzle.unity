@@ -16,6 +16,9 @@ namespace Nozzle
         NozzleNative.NozzleReceiver* handle;
         bool initialized;
         bool connected;
+        bool deferredDestroyPending;
+        bool reinitializeAfterDeferredDestroy;
+        bool destroyed;
         bool warnedMissingTargetTexture;
         ulong nextManagedGeneration = 1;
         NozzleRenderThreadDispatch.PendingOperation pendingAcquireCopy;
@@ -25,6 +28,19 @@ namespace Nozzle
         public NozzleFrameInfo LastFrameInfo { get; private set; }
 
         void OnEnable()
+        {
+            if (destroyed) return;
+            if (deferredDestroyPending)
+            {
+                reinitializeAfterDeferredDestroy = true;
+                Debug.LogWarning("[Nozzle] Receiver initialization deferred until previous native receiver handle teardown completes.");
+                return;
+            }
+
+            InitializeNativeReceiver();
+        }
+
+        void InitializeNativeReceiver()
         {
             if (string.IsNullOrEmpty(senderName))
             {
@@ -81,6 +97,13 @@ namespace Nozzle
 
         void OnDisable()
         {
+            if (deferredDestroyPending)
+            {
+                reinitializeAfterDeferredDestroy = false;
+                connected = false;
+                return;
+            }
+
             bool operationTerminal = NozzleRenderThreadDispatch.CancelReceiverOperations(handle, ref pendingAcquireCopy);
 
             if (!initialized) return;
@@ -88,7 +111,9 @@ namespace Nozzle
             {
                 connected = false;
                 Debug.LogWarning("[Nozzle] Receiver destroy handed to deferred cleanup because a render-thread operation still references the native receiver handle.");
-                NozzleRenderThreadDispatch.RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy);
+                deferredDestroyPending = true;
+                reinitializeAfterDeferredDestroy = false;
+                NozzleRenderThreadDispatch.RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy, OnDeferredDestroyComplete);
                 handle = null;
                 initialized = false;
                 return;
@@ -102,7 +127,24 @@ namespace Nozzle
 
         void OnDestroy()
         {
+            destroyed = true;
             OnDisable();
+        }
+
+        void OnDeferredDestroyComplete()
+        {
+            deferredDestroyPending = false;
+            if (destroyed)
+            {
+                reinitializeAfterDeferredDestroy = false;
+                return;
+            }
+
+            if (!reinitializeAfterDeferredDestroy) return;
+            reinitializeAfterDeferredDestroy = false;
+            if (!isActiveAndEnabled) return;
+
+            InitializeNativeReceiver();
         }
 
         void Update()

@@ -15,10 +15,26 @@ namespace Nozzle
 
         NozzleNative.NozzleSender* handle;
         bool initialized;
+        bool deferredDestroyPending;
+        bool reinitializeAfterDeferredDestroy;
+        bool destroyed;
         ulong nextManagedGeneration = 1;
         NozzleRenderThreadDispatch.PendingOperation pendingPublish;
 
         void OnEnable()
+        {
+            if (destroyed) return;
+            if (deferredDestroyPending)
+            {
+                reinitializeAfterDeferredDestroy = true;
+                Debug.LogWarning("[Nozzle] Sender initialization deferred until previous native sender handle teardown completes.");
+                return;
+            }
+
+            InitializeNativeSender();
+        }
+
+        void InitializeNativeSender()
         {
             if (initialized) return;
 
@@ -70,13 +86,21 @@ namespace Nozzle
 
         void OnDisable()
         {
+            if (deferredDestroyPending)
+            {
+                reinitializeAfterDeferredDestroy = false;
+                return;
+            }
+
             bool operationTerminal = NozzleRenderThreadDispatch.CancelSenderOperations(handle, ref pendingPublish);
 
             if (!initialized) return;
             if (!operationTerminal)
             {
                 Debug.LogWarning("[Nozzle] Sender destroy handed to deferred cleanup because a render-thread operation still references the native sender handle.");
-                NozzleRenderThreadDispatch.RegisterDeferredSenderDestroy(handle, ref pendingPublish);
+                deferredDestroyPending = true;
+                reinitializeAfterDeferredDestroy = false;
+                NozzleRenderThreadDispatch.RegisterDeferredSenderDestroy(handle, ref pendingPublish, OnDeferredDestroyComplete);
                 handle = null;
                 initialized = false;
                 return;
@@ -89,7 +113,24 @@ namespace Nozzle
 
         void OnDestroy()
         {
+            destroyed = true;
             OnDisable();
+        }
+
+        void OnDeferredDestroyComplete()
+        {
+            deferredDestroyPending = false;
+            if (destroyed)
+            {
+                reinitializeAfterDeferredDestroy = false;
+                return;
+            }
+
+            if (!reinitializeAfterDeferredDestroy) return;
+            reinitializeAfterDeferredDestroy = false;
+            if (!isActiveAndEnabled) return;
+
+            InitializeNativeSender();
         }
 
         void Update()

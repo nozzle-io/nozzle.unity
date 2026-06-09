@@ -341,27 +341,42 @@ namespace Nozzle
             return true;
         }
 
-        internal static void RegisterDeferredSenderDestroy(NozzleNative.NozzleSender* sender, ref PendingOperation pendingOperation)
+        internal static void RegisterDeferredSenderDestroy(
+            NozzleNative.NozzleSender* sender,
+            ref PendingOperation pendingOperation,
+            Action destroyedCallback
+        )
         {
             if (sender == null)
             {
                 pendingOperation.Clear();
+                destroyedCallback?.Invoke();
                 return;
             }
-            RegisterDeferredDestroy(DeferredDestroyKind.Sender, (IntPtr)sender, ref pendingOperation);
+            RegisterDeferredDestroy(DeferredDestroyKind.Sender, (IntPtr)sender, ref pendingOperation, destroyedCallback);
         }
 
-        internal static void RegisterDeferredReceiverDestroy(NozzleNative.NozzleReceiver* receiver, ref PendingOperation pendingOperation)
+        internal static void RegisterDeferredReceiverDestroy(
+            NozzleNative.NozzleReceiver* receiver,
+            ref PendingOperation pendingOperation,
+            Action destroyedCallback
+        )
         {
             if (receiver == null)
             {
                 pendingOperation.Clear();
+                destroyedCallback?.Invoke();
                 return;
             }
-            RegisterDeferredDestroy(DeferredDestroyKind.Receiver, (IntPtr)receiver, ref pendingOperation);
+            RegisterDeferredDestroy(DeferredDestroyKind.Receiver, (IntPtr)receiver, ref pendingOperation, destroyedCallback);
         }
 
-        static void RegisterDeferredDestroy(DeferredDestroyKind kind, IntPtr handle, ref PendingOperation pendingOperation)
+        static void RegisterDeferredDestroy(
+            DeferredDestroyKind kind,
+            IntPtr handle,
+            ref PendingOperation pendingOperation,
+            Action destroyedCallback
+        )
         {
             EnsureDeferredCleanupHost();
             deferredDestroys.Add(new DeferredDestroyRecord
@@ -369,6 +384,7 @@ namespace Nozzle
                 Kind = kind,
                 Handle = handle,
                 PendingOperation = pendingOperation,
+                DestroyedCallback = destroyedCallback,
             });
             pendingOperation.Clear();
         }
@@ -400,6 +416,7 @@ namespace Nozzle
                 }
 
                 DestroyDeferredHandle(record);
+                record.DestroyedCallback?.Invoke();
                 deferredDestroys.RemoveAt(index);
             }
         }
@@ -438,6 +455,7 @@ namespace Nozzle
             public DeferredDestroyKind Kind;
             public IntPtr Handle;
             public PendingOperation PendingOperation;
+            public Action DestroyedCallback;
         }
 
         static readonly System.Collections.Generic.List<DeferredDestroyRecord> deferredDestroys =

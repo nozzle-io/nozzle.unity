@@ -224,6 +224,7 @@ def check_runtime_sources() -> None:
     require_text(dispatch, "deferredDestroys")
     require_text(dispatch, "DestroyDeferredHandle")
     require_text(dispatch, "DontDestroyOnLoad")
+    require_text(dispatch, "DestroyedCallback")
 
     for component in [
         RUNTIME_ROOT / "NozzleSender.cs",
@@ -248,10 +249,24 @@ def check_runtime_sources() -> None:
     if "TryEnqueueSenderPublish" not in sender_update:
         fail("NozzleSender.Update must enqueue sender publish operations")
     sender_disable = extract_method_body(sender_text, "void OnDisable()")
-    if "RegisterDeferredSenderDestroy(handle, ref pendingPublish)" not in sender_disable:
+    sender_enable = extract_method_body(sender_text, "void OnEnable()")
+    if "deferredDestroyPending" not in sender_text or "reinitializeAfterDeferredDestroy" not in sender_text:
+        fail("NozzleSender must track deferred teardown state separately from initialized")
+    if "deferredDestroyPending" not in sender_enable or "reinitializeAfterDeferredDestroy = true" not in sender_enable:
+        fail("NozzleSender.OnEnable must defer fresh native create while prior handle teardown is pending")
+    if "InitializeNativeSender()" not in sender_enable:
+        fail("NozzleSender.OnEnable must funnel native creation through an explicit initializer")
+    if "RegisterDeferredSenderDestroy(handle, ref pendingPublish, OnDeferredDestroyComplete)" not in sender_disable:
         fail("NozzleSender.OnDisable must hand busy destroy cleanup to the static deferred cleanup owner")
     if "handle = null;" not in sender_disable or "initialized = false;" not in sender_disable:
         fail("NozzleSender.OnDisable must detach disabled components from deferred native handles")
+    if "deferredDestroyPending = true" not in sender_disable:
+        fail("NozzleSender.OnDisable must mark deferred teardown before detaching the native handle")
+    sender_deferred_complete = extract_method_body(sender_text, "void OnDeferredDestroyComplete()")
+    if "deferredDestroyPending = false" not in sender_deferred_complete:
+        fail("NozzleSender deferred cleanup completion must clear deferredDestroyPending")
+    if "InitializeNativeSender()" not in sender_deferred_complete or "isActiveAndEnabled" not in sender_deferred_complete:
+        fail("NozzleSender deferred cleanup completion must gate delayed reinitialization on active/enabled state")
 
     receiver_text = (RUNTIME_ROOT / "NozzleReceiver.cs").read_text(encoding="utf-8")
     receiver_update = extract_method_body(receiver_text, "void Update()")
@@ -267,10 +282,24 @@ def check_runtime_sources() -> None:
     if "TryEnqueueReceiverAcquireAndCopy" not in receiver_update:
         fail("NozzleReceiver.Update must enqueue receiver acquire/copy operations")
     receiver_disable = extract_method_body(receiver_text, "void OnDisable()")
-    if "RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy)" not in receiver_disable:
+    receiver_enable = extract_method_body(receiver_text, "void OnEnable()")
+    if "deferredDestroyPending" not in receiver_text or "reinitializeAfterDeferredDestroy" not in receiver_text:
+        fail("NozzleReceiver must track deferred teardown state separately from initialized")
+    if "deferredDestroyPending" not in receiver_enable or "reinitializeAfterDeferredDestroy = true" not in receiver_enable:
+        fail("NozzleReceiver.OnEnable must defer fresh native create while prior handle teardown is pending")
+    if "InitializeNativeReceiver()" not in receiver_enable:
+        fail("NozzleReceiver.OnEnable must funnel native creation through an explicit initializer")
+    if "RegisterDeferredReceiverDestroy(handle, ref pendingAcquireCopy, OnDeferredDestroyComplete)" not in receiver_disable:
         fail("NozzleReceiver.OnDisable must hand busy destroy cleanup to the static deferred cleanup owner")
     if "handle = null;" not in receiver_disable or "initialized = false;" not in receiver_disable:
         fail("NozzleReceiver.OnDisable must detach disabled components from deferred native handles")
+    if "deferredDestroyPending = true" not in receiver_disable:
+        fail("NozzleReceiver.OnDisable must mark deferred teardown before detaching the native handle")
+    receiver_deferred_complete = extract_method_body(receiver_text, "void OnDeferredDestroyComplete()")
+    if "deferredDestroyPending = false" not in receiver_deferred_complete:
+        fail("NozzleReceiver deferred cleanup completion must clear deferredDestroyPending")
+    if "InitializeNativeReceiver()" not in receiver_deferred_complete or "isActiveAndEnabled" not in receiver_deferred_complete:
+        fail("NozzleReceiver deferred cleanup completion must gate delayed reinitialization on active/enabled state")
     require_text(dispatch, "TimeoutMs = 0", "non-blocking render-thread receiver enqueue")
 
 
