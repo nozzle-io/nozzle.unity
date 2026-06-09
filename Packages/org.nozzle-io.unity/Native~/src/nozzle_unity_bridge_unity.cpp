@@ -16,6 +16,7 @@ void UNITY_INTERFACE_API on_graphics_device_event(UnityGfxDeviceEventType event_
             break;
         case kUnityGfxDeviceEventShutdown:
             graphics_device_available = 0;
+            nozzle_unity_cancel_all_operations("operation canceled by Unity graphics device shutdown");
             break;
         default:
             break;
@@ -23,7 +24,7 @@ void UNITY_INTERFACE_API on_graphics_device_event(UnityGfxDeviceEventType event_
 }
 
 void UNITY_INTERFACE_API on_render_event(int event_id) {
-    (void)event_id;
+    nozzle_unity_process_render_event(event_id);
 }
 
 } // namespace
@@ -44,6 +45,7 @@ UNITY_INTERFACE_EXPORT void UNITY_INTERFACE_API UnityPluginUnload() {
         unity_graphics->UnregisterDeviceEventCallback(on_graphics_device_event);
     }
     graphics_device_available = 0;
+    nozzle_unity_cancel_all_operations("operation canceled by Unity plugin unload");
     unity_graphics = nullptr;
     unity_interfaces = nullptr;
 }

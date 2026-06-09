@@ -74,6 +74,26 @@ def require_text(path: Path, needle: str, label: str | None = None) -> None:
         fail(f"{path.relative_to(ROOT)} must contain {label or needle!r}")
 
 
+def extract_method_body(text: str, signature: str) -> str:
+    start = text.find(signature)
+    if start < 0:
+        fail(f"method signature is missing: {signature}")
+    brace_start = text.find("{", start)
+    if brace_start < 0:
+        fail(f"method body is missing for: {signature}")
+    depth = 0
+    for index in range(brace_start, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_start + 1:index]
+    fail(f"method body is unterminated for: {signature}")
+    return ""
+
+
 def display_path(path: Path) -> str:
     try:
         return str(path.relative_to(ROOT))
@@ -157,10 +177,17 @@ def check_runtime_sources() -> None:
         "nozzle_unity_get_render_event_func",
         "nozzle_unity_sender_create",
         "nozzle_unity_sender_publish_native_texture",
+        "nozzle_unity_sender_enqueue_publish_native_texture",
+        "nozzle_unity_sender_cancel_operations",
         "nozzle_unity_receiver_create",
         "nozzle_unity_receiver_acquire_frame",
         "nozzle_unity_frame_get_info",
         "nozzle_unity_frame_copy_to_native_texture",
+        "nozzle_unity_receiver_enqueue_acquire_and_copy_native_texture",
+        "nozzle_unity_receiver_cancel_operations",
+        "nozzle_unity_operation_get_status",
+        "nozzle_unity_operation_release",
+        "nozzle_unity_queue_get_diagnostics",
         "nozzle_unity_discovery_enumerate_senders",
     ]
     for symbol in required_bridge_symbols:
@@ -178,6 +205,16 @@ def check_runtime_sources() -> None:
     require_text(dispatch, "GL.IssuePluginEvent")
     require_text(dispatch, "CommandBuffer.IssuePluginEvent")
     require_text(dispatch, "nozzle_unity_get_render_event_func")
+    require_text(dispatch, "PendingOperation")
+    require_text(dispatch, "StrongTextureReference")
+    require_text(dispatch, "TryEnqueueSenderPublish")
+    require_text(dispatch, "TryEnqueueReceiverAcquireAndCopy")
+    require_text(dispatch, "nozzle_unity_sender_enqueue_publish_native_texture")
+    require_text(dispatch, "nozzle_unity_receiver_enqueue_acquire_and_copy_native_texture")
+    require_text(dispatch, "nozzle_unity_operation_get_status")
+    require_text(dispatch, "nozzle_unity_operation_release")
+    require_text(dispatch, "nozzle_unity_sender_cancel_operations")
+    require_text(dispatch, "nozzle_unity_receiver_cancel_operations")
 
     for component in [
         RUNTIME_ROOT / "NozzleSender.cs",
@@ -195,10 +232,27 @@ def check_runtime_sources() -> None:
     ]:
         require_text(component, "RequireNativeTextureOperationDispatch")
 
-    receiver = RUNTIME_ROOT / "NozzleReceiver.cs"
-    require_text(receiver, "frame_copy_to_native_texture failed")
-    require_text(receiver, "finally")
-    require_text(receiver, "nozzle_unity_frame_release(frame)")
+    sender_text = (RUNTIME_ROOT / "NozzleSender.cs").read_text(encoding="utf-8")
+    sender_update = extract_method_body(sender_text, "void Update()")
+    if "nozzle_unity_sender_publish_native_texture" in sender_update:
+        fail("NozzleSender.Update must enqueue render-thread operations, not call publish_native_texture directly")
+    if "TryEnqueueSenderPublish" not in sender_update:
+        fail("NozzleSender.Update must enqueue sender publish operations")
+
+    receiver_text = (RUNTIME_ROOT / "NozzleReceiver.cs").read_text(encoding="utf-8")
+    receiver_update = extract_method_body(receiver_text, "void Update()")
+    forbidden_receiver_update_symbols = [
+        "nozzle_unity_receiver_acquire_frame",
+        "nozzle_unity_frame_get_info",
+        "nozzle_unity_frame_copy_to_native_texture",
+        "nozzle_unity_frame_release",
+    ]
+    for symbol in forbidden_receiver_update_symbols:
+        if symbol in receiver_update:
+            fail(f"NozzleReceiver.Update must not call blocking/direct native frame symbol {symbol}")
+    if "TryEnqueueReceiverAcquireAndCopy" not in receiver_update:
+        fail("NozzleReceiver.Update must enqueue receiver acquire/copy operations")
+    require_text(dispatch, "TimeoutMs = 0", "non-blocking render-thread receiver enqueue")
 
 
 def check_docs_and_samples() -> None:
@@ -267,10 +321,19 @@ def check_native_bridge_sources() -> None:
     header = NATIVE_SOURCE_ROOT / "include" / "nozzle_unity" / "nozzle_unity_bridge.h"
     for symbol in [
         "NOZZLE_UNITY_ABI_VERSION",
+        "NOZZLE_UNITY_EVENT_SENDER_PUBLISH_NATIVE_TEXTURE",
+        "NOZZLE_UNITY_EVENT_RECEIVER_ACQUIRE_AND_COPY_NATIVE_TEXTURE",
         "nozzle_unity_get_support",
         "nozzle_unity_get_render_event_func",
         "nozzle_unity_sender_create",
+        "nozzle_unity_sender_enqueue_publish_native_texture",
+        "nozzle_unity_sender_cancel_operations",
         "nozzle_unity_receiver_create",
+        "nozzle_unity_receiver_enqueue_acquire_and_copy_native_texture",
+        "nozzle_unity_receiver_cancel_operations",
+        "nozzle_unity_operation_get_status",
+        "nozzle_unity_operation_release",
+        "nozzle_unity_queue_get_diagnostics",
         "nozzle_unity_discovery_enumerate_senders",
     ]:
         require_text(header, symbol, f"bridge header export {symbol}")
@@ -279,6 +342,15 @@ def check_native_bridge_sources() -> None:
     require_text(unity_source, "UnityPluginLoad")
     require_text(unity_source, "UnityPluginUnload")
     require_text(unity_source, "IUnityGraphics")
+    require_text(unity_source, "nozzle_unity_process_render_event(event_id)")
+    require_text(unity_source, "nozzle_unity_cancel_all_operations")
+
+    common_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_common.cpp"
+    require_text(common_source, "pending_operations")
+    require_text(common_source, "retained_operations")
+    require_text(common_source, "nozzle_unity_process_render_event")
+    require_text(common_source, "nozzle_unity_cancel_all_operations")
+    require_text(common_source, "render-thread queue drained")
 
     stub_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_stub.cpp"
     require_text(stub_source, "built without Unity Native Plugin API headers")
