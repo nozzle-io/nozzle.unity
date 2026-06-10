@@ -89,6 +89,7 @@ python3 scripts/unity_validate.py \
   --package-source git \
   --validation-scope import \
   --target macos \
+  --git-url "https://github.com/nozzle-io/nozzle.unity.git?path=/Packages/org.nozzle-io.unity#$(git rev-parse HEAD)" \
   --project build/unity-validation-git/project
 ```
 
@@ -100,12 +101,16 @@ python3 scripts/unity_validate.py \
   --validation-scope player \
   --target macos \
   --tgz build/upm/org.nozzle-io.unity-latest-local.tgz \
+  --tgz-payload-root build/downloaded-payloads/native-payload \
+  --tgz-expected-source-commit <artifact-source-sha> \
   --project build/unity-validation-tgz/project
 ```
 
 The validation script imports all declared package samples through Unity's `Sample` API. `--validation-scope import` stops after UPM import, script compilation, unsupported-graphics diagnostics, and sample import. `--validation-scope player` additionally requires the native bridge diagnostics, `PluginImporter` Editor/Player compatibility, a successful minimal Player build, and native plugin inclusion in the Player output.
 
-Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, package SHA, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player when applicable. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
+Git validation requires an explicit full commit SHA fragment and verifies Unity's `Packages/packages-lock.json` resolved that revision through a structured `hash` or `revision` field, not merely by echoing the manifest URL. `.tgz` validation records the archive filename, sha256, and package version from the archive; it also requires `--tgz-payload-root` so the existing static `.tgz` validator can compare native payload hashes before Unity import. The payload root must contain the complete native payload set for every packaged platform, not just the local `--target`, because the `.tgz` validator audits the full release archive. Pass `--tgz-expected-source-commit` unless the archive and payloads were built from the current checkout. Do not use the local repo SHA as a substitute for the imported package artifact identity.
+
+Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, local repo SHA, imported package identity, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player when applicable. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
 
 A real Unity native plugin build must provide Unity Native Plugin API headers explicitly:
 

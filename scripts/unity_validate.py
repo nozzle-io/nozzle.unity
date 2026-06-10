@@ -7,12 +7,24 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from unity_release_contract import PACKAGE_NAME, PACKAGE_ROOT_RELATIVE, PLATFORMS, current_git_sha, fail
+from unity_release_contract import (
+    PACKAGE_NAME,
+    PACKAGE_ROOT_RELATIVE,
+    PLATFORMS,
+    current_git_sha,
+    fail,
+    package_manifest,
+    sha256_file,
+    validate_no_forbidden_package_files,
+)
+from validate_upm_tgz import extract_tgz, validate_against_payloads, validate_required_package_files
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PACKAGE_ROOT = ROOT / PACKAGE_ROOT_RELATIVE
@@ -207,8 +219,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--package-root", type=Path, default=SOURCE_PACKAGE_ROOT, help="Source package root to stage for --package-source file.")
     parser.add_argument("--staged-package", type=Path, default=DEFAULT_STAGED_PACKAGE_ROOT)
     parser.add_argument("--native-payload", type=Path, default=None, help="Optional native-payload/<platform> directory or native-payload root to overlay into the staged package for --package-source file.")
-    parser.add_argument("--git-url", default="https://github.com/nozzle-io/nozzle.unity.git?path=/Packages/org.nozzle-io.unity", help="UPM Git URL used by --package-source git.")
+    parser.add_argument("--git-url", default="", help="UPM Git URL used by --package-source git. Must include ?path=/Packages/org.nozzle-io.unity and end with a full 40-hex revision fragment.")
     parser.add_argument("--tgz", type=Path, default=None, help="UPM .tgz package used by --package-source tgz.")
+    parser.add_argument("--tgz-payload-root", type=Path, default=None, help="Validated native-payload root used to run static .tgz validation before Unity import.")
+    parser.add_argument("--tgz-expected-source-commit", default=None, help="Expected native payload source commit for --tgz-payload-root validation.")
     parser.add_argument("--keep-project", action="store_true")
     parser.add_argument("--optional", action="store_true", help="Print PENDING and exit 0 instead of failing when Unity is unavailable.")
     return parser.parse_args()
@@ -329,26 +343,122 @@ def write_project(project: Path, package_dependency: str, target: dict[str, str]
     return build_path, report_path
 
 
-def package_dependency(args: argparse.Namespace, contract_key: str) -> tuple[str, Path | None]:
+def git_revision_from_url(git_url: str) -> str:
+    if "?path=/Packages/org.nozzle-io.unity" not in git_url:
+        fail("--git-url must include ?path=/Packages/org.nozzle-io.unity for UPM package-path validation")
+    match = re.search(r"#([0-9a-fA-F]{40})$", git_url)
+    if not match:
+        fail("--package-source git requires --git-url to end with a full 40-hex revision fragment")
+    return match.group(1).lower()
+
+
+def tgz_identity(tgz: Path) -> dict[str, str]:
+    if not tgz.is_file():
+        fail(f"UPM tgz is missing: {tgz}")
+    with tempfile.TemporaryDirectory(prefix="nozzle-unity-tgz-identity-") as tmp:
+        package_root = extract_tgz(tgz, Path(tmp) / "extract")
+        manifest = package_manifest(package_root)
+    name = manifest.get("name")
+    version = manifest.get("version")
+    if name != PACKAGE_NAME:
+        fail(f"UPM tgz package name mismatch: {name!r}")
+    if not isinstance(version, str) or not version:
+        fail("UPM tgz package.json version is missing")
+    return {
+        "path": str(tgz),
+        "filename": tgz.name,
+        "sha256": sha256_file(tgz),
+        "package_name": name,
+        "package_version": version,
+    }
+
+
+def validate_tgz_static(args: argparse.Namespace, tgz: Path) -> dict[str, str]:
+    if not args.tgz_payload_root:
+        fail("--package-source tgz requires --tgz-payload-root so the static .tgz validator can bind the archive to native payload hashes")
+    expected_source_commit = args.tgz_expected_source_commit or current_git_sha(ROOT)
+    with tempfile.TemporaryDirectory(prefix="nozzle-unity-tgz-static-") as tmp:
+        package_root = extract_tgz(tgz, Path(tmp) / "extract")
+        validate_required_package_files(package_root)
+        validate_no_forbidden_package_files(package_root)
+        validate_against_payloads(package_root, args.tgz_payload_root.resolve(), expected_source_commit)
+    return {
+        "mode": "validate_upm_tgz_static",
+        "payload_root": str(args.tgz_payload_root.resolve()),
+        "expected_source_commit": expected_source_commit,
+    }
+
+
+def package_dependency(args: argparse.Namespace, contract_key: str) -> tuple[str, Path | None, dict[str, Any]]:
     if args.package_source == "file":
         staged_package = args.staged_package.resolve()
         copy_package_source(args.package_root.resolve(), staged_package)
         if args.native_payload:
             overlay_native_payload(staged_package, resolve_payload_dir(args.native_payload, contract_key), PLATFORMS[contract_key].plugin_relative_path)
-        return f"file:{staged_package.as_posix()}", staged_package
+        manifest = package_manifest(staged_package)
+        return f"file:{staged_package.as_posix()}", staged_package, {
+            "source": "file",
+            "path": str(staged_package),
+            "repo_sha": current_git_sha(ROOT),
+            "package_name": str(manifest.get("name", "")),
+            "package_version": str(manifest.get("version", "")),
+        }
     if args.package_source == "git":
-        if "?path=/Packages/org.nozzle-io.unity" not in args.git_url:
-            fail("--git-url must include ?path=/Packages/org.nozzle-io.unity for UPM package-path validation")
-        return args.git_url, None
+        revision = git_revision_from_url(args.git_url)
+        return args.git_url, None, {
+            "source": "git",
+            "url": args.git_url,
+            "requested_revision": revision,
+        }
     if args.package_source == "tgz":
         if not args.tgz:
             fail("--package-source tgz requires --tgz")
         tgz = args.tgz.resolve()
-        if not tgz.is_file():
-            fail(f"UPM tgz is missing: {tgz}")
-        return f"file:{tgz.as_posix()}", tgz
+        identity: dict[str, Any] = tgz_identity(tgz)
+        identity["source"] = "tgz"
+        identity["static_validation"] = validate_tgz_static(args, tgz)
+        return f"file:{tgz.as_posix()}", tgz, identity
     fail(f"unsupported package source: {args.package_source}")
-    return "", None
+    return "", None, {}
+
+
+def package_lock_identity(project: Path, package_identity_data: dict[str, Any]) -> dict[str, Any]:
+    lock_path = project / "Packages" / "packages-lock.json"
+    if not lock_path.is_file():
+        fail(f"Unity package lock was not written: {lock_path}")
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    dependencies = lock.get("dependencies")
+    if not isinstance(dependencies, dict) or PACKAGE_NAME not in dependencies:
+        fail(f"Unity package lock does not contain {PACKAGE_NAME}: {lock_path}")
+    entry = dependencies[PACKAGE_NAME]
+    if not isinstance(entry, dict):
+        fail(f"Unity package lock entry is not an object for {PACKAGE_NAME}")
+
+    identity: dict[str, Any] = {"lock_path": str(lock_path), "entry": entry}
+    source = str(entry.get("source", "")).lower()
+    version = str(entry.get("version", ""))
+    if package_identity_data.get("source") == "git":
+        requested = str(package_identity_data["requested_revision"]).lower()
+        if source != "git":
+            fail(f"Unity package lock source for Git dependency must be 'git', got {entry.get('source')!r}")
+        lock_hash = str(entry.get("hash", "")).lower()
+        lock_revision = str(entry.get("revision", "")).lower()
+        resolved_revision = lock_hash or lock_revision
+        if not resolved_revision:
+            fail(f"Unity package lock does not expose a structured Git hash/revision for {requested}: {entry!r}")
+        if resolved_revision != requested:
+            fail(f"Unity package lock did not resolve requested Git revision {requested}: {entry!r}")
+        identity["resolved_revision"] = resolved_revision
+    if package_identity_data.get("source") == "tgz":
+        expected_dependency = f"file:{Path(package_identity_data['path']).resolve().as_posix()}"
+        if source not in {"local", "tarball"}:
+            fail(f"Unity package lock source for tgz dependency must be local/tarball, got {entry.get('source')!r}")
+        if version != expected_dependency:
+            fail(f"Unity package lock tgz dependency mismatch; expected {expected_dependency!r}, got {version!r}")
+        identity["resolved_dependency"] = version
+        identity["artifact_filename"] = package_identity_data["filename"]
+        identity["artifact_sha256"] = package_identity_data["sha256"]
+    return identity
 
 
 def find_plugin_in_player(build_path: Path, plugin_name: str) -> list[str]:
@@ -366,7 +476,7 @@ def main() -> None:
     if platform.system() != target["host_system"]:
         fail(f"target {args.target} requires host {target['host_system']}, current host is {platform.system()}")
 
-    dependency, package_evidence_path = package_dependency(args, contract.key)
+    dependency, package_evidence_path, package_identity_data = package_dependency(args, contract.key)
     if args.validation_scope == "player" and args.package_source == "file":
         expected_plugin = Path(package_evidence_path) / contract.plugin_relative_path
         if not expected_plugin.is_file():
@@ -399,6 +509,7 @@ def main() -> None:
     if not report_path.is_file():
         fail(f"Unity validation report was not written: {report_path}")
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    package_identity_data["unity_package_lock"] = package_lock_identity(project, package_identity_data)
     matches = []
     if args.validation_scope == "player":
         matches = find_plugin_in_player(build_path, contract.plugin_relative_path.name)
@@ -410,7 +521,8 @@ def main() -> None:
         "unity_editor": str(unity),
         "unity_version": version,
         "target": args.target,
-        "package_sha": current_git_sha(ROOT),
+        "repo_sha": current_git_sha(ROOT),
+        "package_identity": package_identity_data,
         "nozzle_sha": current_git_sha(ROOT / "nozzle"),
         "project_path": str(project),
         "package_source": args.package_source,
