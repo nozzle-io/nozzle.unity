@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--platform", required=True, choices=sorted(PLATFORMS))
     parser.add_argument("--artifact-root", required=True, type=Path, help="CMake-staged full artifact root containing Packages/org.nozzle-io.unity")
     parser.add_argument("--output-root", required=True, type=Path, help="Output root. The script writes native-payload/<platform>/...")
+    parser.add_argument("--support-mode", choices=("stub", "runtime"), default=EXPECTED_SUPPORT_MODE, help="Expected bridge support contract for this payload.")
     return parser.parse_args()
 
 
@@ -62,7 +63,7 @@ def main() -> None:
     meta_record = validate_plugin_meta(payload_meta, contract, payload_dir)
     library = load_native_library(payload_binary)
     exports = check_exported_symbols(payload_binary, library)
-    support = check_native_support_contract(payload_binary, library)
+    support = check_native_support_contract(payload_binary, library, args.support_mode)
     architecture = inspect_architecture(payload_binary, contract, ROOT)
     dependencies = inspect_dependencies(payload_binary, contract, ROOT)
 
@@ -84,10 +85,10 @@ def main() -> None:
         "dependencies": dependencies,
         "exports": exports,
         "support": support,
-        "expected_support_mode": EXPECTED_SUPPORT_MODE,
+        "expected_support_mode": args.support_mode,
     }
     write_json(payload_dir / "validation.json", validation)
-    validate_payload_schema(payload_dir, contract.key)
+    validate_payload_schema(payload_dir, contract.key, expected_support_mode=args.support_mode)
     print(f"native payload created: {payload_dir}")
     print(f"native payload binary: {contract.plugin_relative_path.as_posix()}")
     print(f"native payload sha256: {validation['binary']['sha256']}")

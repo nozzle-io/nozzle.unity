@@ -127,6 +127,7 @@ namespace Nozzle.UnityValidation
             string reportPath = Arg("-nozzleValidationReport", "Logs/nozzle-unity-validation.json");
             string expectedPluginPath = Arg("-nozzleValidationExpectedPlugin", "").Replace('\\', '/');
             string validationScope = Arg("-nozzleValidationScope", "player");
+            bool expectRuntimeSupported = Arg("-nozzleValidationExpectRuntimeSupported", "false") == "true";
 
             BuildTarget buildTarget = (BuildTarget)Enum.Parse(typeof(BuildTarget), buildTargetName);
             UnityEditor.PackageManager.PackageInfo packageInfo =
@@ -162,7 +163,10 @@ namespace Nozzle.UnityValidation
             bool supportCallOk = NozzleRuntimeSupport.TryGetBridgeSupport(out support);
             Require(supportCallOk, "nozzle_unity_get_support must be callable when native payload is installed: " + support.StatusMessage);
             Require(support.BridgeBinaryLoaded, "native bridge binary did not report loaded=true");
-            Require(!support.RuntimeSupported, "#132 validation must not claim runtime support");
+            Require(
+                support.RuntimeSupported == expectRuntimeSupported,
+                "runtime support expectation mismatch: expected=" + expectRuntimeSupported + " actual=" + support.RuntimeSupported + " diagnostics=" + support.StatusMessage
+            );
             Require(!String.IsNullOrEmpty(support.StatusMessage), "native bridge support diagnostics must include a status message");
 
             Require(!String.IsNullOrEmpty(expectedPluginPath), "expected native plugin path argument is required");
@@ -202,6 +206,11 @@ namespace Nozzle.UnityValidation
                 {"expected_plugin_path", expectedPluginPath},
                 {"bridge_binary_loaded", support.BridgeBinaryLoaded.ToString()},
                 {"runtime_supported", support.RuntimeSupported.ToString()},
+                {"expect_runtime_supported", expectRuntimeSupported.ToString()},
+                {"unity_headers_compiled", support.UnityHeadersCompiled.ToString()},
+                {"unity_graphics_device_available", support.UnityGraphicsDeviceAvailable.ToString()},
+                {"render_thread_events_available", support.RenderThreadEventsAvailable.ToString()},
+                {"direct_nozzle_c_abi_available", support.DirectNozzleCAbiAvailable.ToString()},
                 {"support_status", support.StatusMessage},
             });
 
@@ -226,6 +235,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tgz", type=Path, default=None, help="UPM .tgz package used by --package-source tgz.")
     parser.add_argument("--tgz-payload-root", type=Path, default=None, help="Validated native-payload root used to run static .tgz validation before Unity import.")
     parser.add_argument("--tgz-expected-source-commit", default=None, help="Expected native payload source commit for --tgz-payload-root validation.")
+    parser.add_argument("--expect-runtime-supported", action="store_true", help="Require Unity Editor bridge diagnostics to report runtime_supported=true during player validation.")
     parser.add_argument("--keep-project", action="store_true")
     parser.add_argument("--optional", action="store_true", help="Print PENDING and exit 0 instead of failing when Unity is unavailable.")
     return parser.parse_args()
@@ -507,6 +517,7 @@ def main() -> None:
         "-nozzleValidationReport", str(report_path),
         "-nozzleValidationExpectedPlugin", f"Packages/{PACKAGE_NAME}/{contract.plugin_relative_path.as_posix()}",
         "-nozzleValidationScope", args.validation_scope,
+        "-nozzleValidationExpectRuntimeSupported", "true" if args.expect_runtime_supported else "false",
     ]
     run(command, log_path=log_path)
     if not report_path.is_file():

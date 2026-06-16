@@ -16,7 +16,7 @@ Do not use the repository root URL; the package manifest is under `Packages/org.
 
 ## Current status
 
-The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI now also builds per-OS staged package artifacts that include a compiled `nozzle_unity` bridge binary, but those artifacts are still unsupported at runtime. Even a future bridge that reports `runtime_supported != 0` is not enough by itself: sender/receiver runtime remains blocked until managed render-thread dispatch, native queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence exist.
+The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI still builds per-OS staged stub/native ABI artifacts without Unity Native Plugin API headers; those release-oriented artifacts intentionally report `runtime_supported = 0`. The source tree also contains an opt-in Unity-header runtime bridge path that can be built locally with external Unity PluginAPI headers and maps the #136 render-thread queue to nozzle core sender/receiver/discovery calls for Metal/D3D11, but Editor/Player frame smoke evidence is still required before any runtime support claim.
 
 - Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
 - `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
@@ -121,7 +121,7 @@ cmake -S . -B build/nozzle_unity_unity \
 cmake --build build/nozzle_unity_unity --target nozzle_unity
 ```
 
-This repository vendors/downloads no Unity headers. The Unity-header bridge source contains lifecycle and render-event entry points, but sender/receiver/discovery implementation remains blocked until it is wired to nozzle core and validated in Unity.
+This repository vendors/downloads no Unity headers. The Unity-header bridge source now contains lifecycle callbacks, Metal/D3D11 device capture, render-event queue execution, and nozzle core sender/receiver/discovery wiring, but it must be built with an external Unity PluginAPI directory and still needs Unity Editor/Player frame smoke validation.
 
 ## Architecture
 
@@ -130,7 +130,7 @@ Current bounded scaffold:
 ```text
 Unity C# MonoBehaviours
   -> P/Invoke -> nozzle_unity bridge diagnostics/ABI
-  -> CI stub fallback or Unity-header lifecycle scaffold
+  -> CI stub fallback or opt-in Unity-header Metal/D3D11 runtime bridge source
 ```
 
 Required implementation before real support claims:

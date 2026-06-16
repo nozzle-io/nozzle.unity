@@ -201,7 +201,7 @@ def check_runtime_sources() -> None:
     require_text(support, "runtime support")
 
     dispatch = RUNTIME_ROOT / "NozzleRenderThreadDispatch.cs"
-    require_text(dispatch, "ManagedNativeTextureOperationsImplemented = false")
+    require_text(dispatch, "ManagedNativeTextureOperationsImplemented = true")
     require_text(dispatch, "GL.IssuePluginEvent")
     require_text(dispatch, "CommandBuffer.IssuePluginEvent")
     require_text(dispatch, "nozzle_unity_get_render_event_func")
@@ -400,7 +400,10 @@ def check_native_bridge_sources() -> None:
     require_text(common_source, "nozzle_unity_status_busy")
     require_text(common_source, "nozzle_unity_process_render_event")
     require_text(common_source, "nozzle_unity_cancel_all_operations")
-    require_text(common_source, "render-thread queue drained")
+    require_text(common_source, "bridge_runtime_available")
+    require_text(common_source, "nozzle_sender_publish_native_texture")
+    require_text(common_source, "nozzle_frame_copy_to_native_texture")
+    require_text(common_source, "nozzle_unity_operation_state_running")
 
     stub_source = NATIVE_SOURCE_ROOT / "src" / "nozzle_unity_bridge_stub.cpp"
     require_text(stub_source, "built without Unity Native Plugin API headers")
@@ -410,6 +413,7 @@ def check_native_bridge_sources() -> None:
     require_text(cmake, "NOZZLE_UNITY_PLUGIN_API_DIR")
     require_text(cmake, "nozzle_unity_bridge_stub.cpp")
     require_text(cmake, "nozzle_unity_bridge_unity.cpp")
+    require_text(cmake, "nozzle_unity_bridge_metal.mm")
     require_text(cmake, "nozzle_unity_package_artifact")
     require_text(cmake, "NOZZLE_UNITY_ARTIFACT_ROOT")
 
@@ -430,12 +434,17 @@ def check_native_bridge_sources() -> None:
     require_text(contract, "deterministic_guid")
     require_text(contract, "Windows dependency inspection requires dumpbin")
     require_text(contract, "runtime_supported")
+    require_text(contract, "SUPPORT_MODES")
+    require_text(ROOT / "scripts" / "create_native_payload.py", "--support-mode")
+    require_text(ROOT / "scripts" / "validate_native_payload.py", "--support-mode")
     require_text(ROOT / "scripts" / "validate_upm_tgz.py", "Static UPM archive / manifest preflight")
     unity_validate = ROOT / "scripts" / "unity_validate.py"
     require_text(unity_validate, "UNITY_EDITOR")
     require_text(unity_validate, "UNITY_EDITOR_PATH")
     require_text(unity_validate, "--package-source")
     require_text(unity_validate, "--validation-scope")
+    require_text(unity_validate, "--expect-runtime-supported")
+    require_text(unity_validate, "-nozzleValidationExpectRuntimeSupported")
     require_text(unity_validate, "--tgz-payload-root")
     require_text(unity_validate, "packages-lock.json")
     require_text(unity_validate, "requested_revision")

@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(APPLE)
+    enable_language(OBJCXX)
     if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
         set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "macOS deployment target" FORCE)
     endif()
@@ -59,6 +60,11 @@ if(NOZZLE_UNITY_USE_UNITY_HEADERS)
     target_sources(nozzle_unity PRIVATE
         "${NOZZLE_UNITY_NATIVE_ROOT}/src/nozzle_unity_bridge_unity.cpp"
     )
+    if(APPLE)
+        target_sources(nozzle_unity PRIVATE
+            "${NOZZLE_UNITY_NATIVE_ROOT}/src/nozzle_unity_bridge_metal.mm"
+        )
+    endif()
     target_include_directories(nozzle_unity PRIVATE "${NOZZLE_UNITY_PLUGIN_API_DIR}")
     target_compile_definitions(nozzle_unity PRIVATE NOZZLE_UNITY_WITH_UNITY_HEADERS=1)
 else()

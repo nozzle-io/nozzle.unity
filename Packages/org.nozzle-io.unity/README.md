@@ -2,7 +2,7 @@
 
 Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle).
 
-This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player runtime evidence. CI may attach staged package artifacts with a compiled bridge binary; those artifacts are CI-staged stub/native ABI artifacts and remain runtime-disabled. Even a future native diagnostic with `runtime_supported != 0` is not sufficient unless managed render-thread dispatch, native queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence are also present.
+This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player frame evidence. CI may attach staged package artifacts with a compiled bridge binary; the default release-oriented artifacts are CI-staged stub/native ABI artifacts and remain runtime-disabled. An opt-in Unity-header runtime bridge source path exists for Metal/D3D11 builds with external Unity PluginAPI headers, but support is not claimed until Editor/Player smoke proves it.
 
 ## Install
 
@@ -21,7 +21,7 @@ Installing the UPM package only installs package files. It does **not** install 
 | `NozzleSender` | Routes through `nozzle_unity` bridge diagnostics; refuses support when the bridge reports unsupported. |
 | `NozzleReceiver` | Routes through `nozzle_unity` bridge diagnostics; no validated render-thread copy path yet. |
 | `NozzleDiscovery` | Routes through `nozzle_unity` bridge diagnostics; no supported runtime enumeration claim yet. |
-| `Native~/` | Source bridge ABI with a CI fallback build, a native artifact staging target, and an opt-in Unity-header lifecycle scaffold. |
+| `Native~/` | Source bridge ABI with a CI fallback build, a native artifact staging target, and an opt-in Unity-header Metal/D3D11 runtime bridge source path. |
 
 ## Runtime limitations
 
@@ -32,7 +32,7 @@ The Git package does not bundle native binaries, and it has no Unity Editor/Play
 - Release packaging CI may publish a UPM `.tgz` named `org.nozzle-io.unity-latest-<short_sha>.tgz` or `org.nozzle-io.unity-<tag>.tgz`. That archive is validated by static UPM archive / manifest preflight plus native payload hash checks; it is not Unity Editor import evidence.
 - Native plugin `.meta` files in release archives are deterministic `PluginImporter` metadata generated for the target plugin paths. Random Unity importer output must not be treated as release evidence.
 - The default bridge build compiles without Unity headers and intentionally reports `runtime_supported = 0`.
-- The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none.
+- The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none. That source path captures Metal/D3D11 Unity devices and routes queued sender/receiver/discovery operations into nozzle core, but it is not Editor/Player smoke evidence by itself.
 - Sender, receiver, and discovery bridge operations are not wired to nozzle core yet.
 - Metal and D3D11 are intended future targets, but Editor and Player runtime behavior is currently unverified.
 - OpenGL, Vulkan, Linux, mobile, and console runtime support are unsupported until proven by Unity runtime tests.

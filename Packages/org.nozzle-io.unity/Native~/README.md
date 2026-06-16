@@ -26,7 +26,7 @@ cmake -S . -B build/nozzle_unity_native \
 cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
 ```
 
-The artifact is still runtime-unsupported by default. Without Unity Native Plugin API headers and completed Unity render-thread/nozzle wiring, `nozzle_unity_get_support` must report `runtime_supported = 0`.
+The default CI artifact is still runtime-unsupported. Without Unity Native Plugin API headers, `nozzle_unity_get_support` must report `runtime_supported = 0`. Unity-header runtime payloads are a separate explicit build mode.
 
 ## Real Unity-header build path
 
@@ -40,4 +40,4 @@ cmake -S . -B build/nozzle_unity_unity \
 cmake --build build/nozzle_unity_unity --target nozzle_unity
 ```
 
-The Unity-header source compiles `UnityPluginLoad`, `UnityPluginUnload`, `IUnityGraphics` device callbacks, and a render-event function pointer. Sender, receiver, and discovery operations still return `nozzle_unity_status_unsupported` until the bridge maps Unity render-thread/device state to nozzle core calls and is validated in Unity Editor and Player smoke tests.
+The Unity-header source compiles `UnityPluginLoad`, `UnityPluginUnload`, `IUnityGraphics` device callbacks, Metal/D3D11 device capture, a render-event function pointer, and queued sender/receiver/discovery calls into nozzle core. It still is not a support claim until Unity Editor and Player smoke tests prove frame exchange.

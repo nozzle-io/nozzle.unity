@@ -7,7 +7,7 @@ namespace Nozzle
 {
     internal static unsafe class NozzleRenderThreadDispatch
     {
-        internal const bool ManagedNativeTextureOperationsImplemented = false;
+        internal const bool ManagedNativeTextureOperationsImplemented = true;
         internal const int SenderPublishNativeTextureEvent = NozzleNative.EVENT_SENDER_PUBLISH_NATIVE_TEXTURE;
         internal const int ReceiverAcquireAndCopyNativeTextureEvent = NozzleNative.EVENT_RECEIVER_ACQUIRE_AND_COPY_NATIVE_TEXTURE;
 

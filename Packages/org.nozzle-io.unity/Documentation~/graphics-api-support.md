@@ -1,6 +1,6 @@
 # Graphics API support
 
-The package now has a `nozzle_unity` bridge ABI and an opt-in Unity-header source file for graphics-device lifecycle callbacks, but no graphics API has validated runtime support.
+The package now has a `nozzle_unity` bridge ABI and an opt-in Unity-header source path for Metal/D3D11 device capture and render-thread queued nozzle operations, but no graphics API has validated Editor/Player frame smoke support.
 
 Present scaffolding:
 

@@ -6,6 +6,9 @@
 
 int32_t nozzle_unity_environment_has_unity_headers();
 int32_t nozzle_unity_environment_has_graphics_device();
+int32_t nozzle_unity_environment_runtime_backend_available();
+int32_t nozzle_unity_environment_backend();
+void *nozzle_unity_environment_native_device();
 nozzle_unity_render_event_func nozzle_unity_environment_render_event_func();
 const char *nozzle_unity_environment_status_message();
 void nozzle_unity_process_render_event(int32_t event_id);

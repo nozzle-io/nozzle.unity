@@ -20,6 +20,7 @@ PACKAGE_NAME = "org.nozzle-io.unity"
 PACKAGE_ROOT_RELATIVE = Path("Packages") / PACKAGE_NAME
 VALIDATION_SCHEMA_VERSION = 1
 EXPECTED_SUPPORT_MODE = "stub"
+SUPPORT_MODES = {"stub", "runtime"}
 REQUIRED_EXPORTS = [
     "nozzle_unity_get_support",
     "nozzle_unity_get_version",
@@ -287,7 +288,9 @@ def check_exported_symbols(native_plugin: Path, library: ctypes.CDLL) -> dict[st
     return {"required": REQUIRED_EXPORTS, "missing": [], "result": "pass"}
 
 
-def check_native_support_contract(native_plugin: Path, library: ctypes.CDLL) -> dict[str, Any]:
+def check_native_support_contract(native_plugin: Path, library: ctypes.CDLL, expected_support_mode: str = EXPECTED_SUPPORT_MODE) -> dict[str, Any]:
+    if expected_support_mode not in SUPPORT_MODES:
+        fail(f"unsupported native support mode: {expected_support_mode}")
     get_support = library.nozzle_unity_get_support
     get_support.argtypes = [ctypes.POINTER(NativeSupportInfo)]
     get_support.restype = ctypes.c_int32
@@ -311,15 +314,21 @@ def check_native_support_contract(native_plugin: Path, library: ctypes.CDLL) -> 
         "abi_version": 1,
         "bridge_binary_loaded": 1,
         "runtime_supported": 0,
-        "unity_headers_compiled": 0,
-        "render_thread_events_available": 0,
     }
+    if expected_support_mode == "stub":
+        expected["unity_headers_compiled"] = 0
+        expected["render_thread_events_available"] = 0
+    else:
+        expected["unity_headers_compiled"] = 1
+        expected["render_thread_events_available"] = 1
     for key, value in expected.items():
         if fields[key] != value:
-            fail(f"stub native support field {key} must be {value}, got {fields[key]} for {native_plugin}")
-    if "CI stub" not in message or "runtime" not in message:
+            fail(f"{expected_support_mode} native support field {key} must be {value}, got {fields[key]} for {native_plugin}")
+    if expected_support_mode == "stub" and ("CI stub" not in message or "runtime" not in message):
         fail(f"native support message must identify CI stub/runtime-disabled boundary, got {message!r}")
-    return {"expected_mode": EXPECTED_SUPPORT_MODE, "fields": fields, "result": "pass"}
+    if expected_support_mode == "runtime" and "Unity-header bridge" not in message:
+        fail(f"runtime native support message must identify Unity-header bridge boundary, got {message!r}")
+    return {"expected_mode": expected_support_mode, "fields": fields, "result": "pass"}
 
 
 def run_command(command: list[str], cwd: Path | None = None) -> tuple[str, str]:
@@ -472,7 +481,12 @@ def inspect_architecture(native_plugin: Path, contract: PlatformContract, root: 
     return {"tool": command[0], "command": command, "parsed_architectures": archs, "expected_architectures": list(contract.expected_architectures), "result": "pass"}
 
 
-def validate_payload_schema(payload_dir: Path, platform_key: str | None = None, expected_source_commit: str | None = None) -> dict[str, Any]:
+def validate_payload_schema(
+    payload_dir: Path,
+    platform_key: str | None = None,
+    expected_source_commit: str | None = None,
+    expected_support_mode: str | None = None,
+) -> dict[str, Any]:
     validation_path = payload_dir / "validation.json"
     data = read_json(validation_path)
     if data.get("schema_version") != VALIDATION_SCHEMA_VERSION:
@@ -488,8 +502,11 @@ def validate_payload_schema(payload_dir: Path, platform_key: str | None = None, 
         fail(f"payload validation source_commit must be a 40-character git SHA: {validation_path}")
     if expected_source_commit is not None and source_commit != expected_source_commit:
         fail(f"payload source_commit mismatch for {key}: expected {expected_source_commit}, got {source_commit}")
-    if data.get("expected_support_mode") != EXPECTED_SUPPORT_MODE:
-        fail(f"payload expected_support_mode must be {EXPECTED_SUPPORT_MODE}: {validation_path}")
+    support_mode = data.get("expected_support_mode")
+    if support_mode not in SUPPORT_MODES:
+        fail(f"payload expected_support_mode must be one of {sorted(SUPPORT_MODES)!r}: {validation_path}")
+    if expected_support_mode is not None and support_mode != expected_support_mode:
+        fail(f"payload expected_support_mode mismatch: expected {expected_support_mode}, got {support_mode}")
     binary_relative = data.get("binary", {}).get("relative_path")
     meta_relative = data.get("meta", {}).get("relative_path")
     if binary_relative != contract.plugin_relative_path.as_posix():
