@@ -508,7 +508,10 @@ def main() -> None:
         str(unity),
         "-batchmode",
         "-quit",
-        "-nographics",
+    ]
+    if not args.expect_runtime_supported:
+        command.append("-nographics")
+    command.extend([
         "-projectPath", str(project),
         "-logFile", str(log_path),
         "-executeMethod", "Nozzle.UnityValidation.NozzleUnityValidation.ValidateAndBuild",
@@ -518,7 +521,7 @@ def main() -> None:
         "-nozzleValidationExpectedPlugin", f"Packages/{PACKAGE_NAME}/{contract.plugin_relative_path.as_posix()}",
         "-nozzleValidationScope", args.validation_scope,
         "-nozzleValidationExpectRuntimeSupported", "true" if args.expect_runtime_supported else "false",
-    ]
+    ])
     run(command, log_path=log_path)
     if not report_path.is_file():
         fail(f"Unity validation report was not written: {report_path}")
