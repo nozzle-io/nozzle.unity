@@ -50,10 +50,10 @@ namespace Nozzle
                 return true;
             }
 
-            var nativeSupport = new NozzleNative.SupportInfo();
+            NozzleNative.SupportInfo* nativeSupport = stackalloc NozzleNative.SupportInfo[1];
             try
             {
-                int ec = NozzleNative.nozzle_unity_get_support(&nativeSupport);
+                int ec = NozzleNative.nozzle_unity_get_support(nativeSupport);
                 if (ec != NozzleNative.STATUS_OK)
                 {
                     support = MakeUnavailableSupport($"nozzle_unity_get_support returned {ec}");
@@ -79,21 +79,17 @@ namespace Nozzle
                 return false;
             }
 
-            string statusMessage;
-            fixed (byte* statusMessagePtr = nativeSupport.StatusMessage)
-            {
-                statusMessage = FixedUtf8ToString(statusMessagePtr, 256);
-            }
+            string statusMessage = FixedUtf8ToString(nativeSupport->StatusMessage, NozzleNative.STATUS_MESSAGE_CAPACITY);
 
             support = new BridgeSupport
             {
-                AbiVersion = nativeSupport.AbiVersion,
-                BridgeBinaryLoaded = nativeSupport.BridgeBinaryLoaded != 0,
-                RuntimeSupported = nativeSupport.RuntimeSupported != 0,
-                UnityHeadersCompiled = nativeSupport.UnityHeadersCompiled != 0,
-                UnityGraphicsDeviceAvailable = nativeSupport.UnityGraphicsDeviceAvailable != 0,
-                RenderThreadEventsAvailable = nativeSupport.RenderThreadEventsAvailable != 0,
-                DirectNozzleCAbiAvailable = nativeSupport.DirectNozzleCAbiAvailable != 0,
+                AbiVersion = nativeSupport->AbiVersion,
+                BridgeBinaryLoaded = nativeSupport->BridgeBinaryLoaded != 0,
+                RuntimeSupported = nativeSupport->RuntimeSupported != 0,
+                UnityHeadersCompiled = nativeSupport->UnityHeadersCompiled != 0,
+                UnityGraphicsDeviceAvailable = nativeSupport->UnityGraphicsDeviceAvailable != 0,
+                RenderThreadEventsAvailable = nativeSupport->RenderThreadEventsAvailable != 0,
+                DirectNozzleCAbiAvailable = nativeSupport->DirectNozzleCAbiAvailable != 0,
                 StatusMessage = statusMessage,
             };
 

@@ -114,20 +114,18 @@ namespace Nozzle
             IntPtr nativeTexture = sourceTexture.GetNativeTexturePtr();
             if (nativeTexture == IntPtr.Zero) return false;
 
-            var desc = new NozzleNative.SenderPublishNativeTextureDesc
-            {
-                Sender = sender,
-                NativeTexture = (void*)nativeTexture,
-                Width = (uint)sourceTexture.width,
-                Height = (uint)sourceTexture.height,
-                TextureFormat = textureFormat,
-                ManagedGeneration = managedGeneration,
-            };
+            NozzleNative.SenderPublishNativeTextureDesc* desc = stackalloc NozzleNative.SenderPublishNativeTextureDesc[1];
+            desc->Sender = sender;
+            desc->NativeTexture = (void*)nativeTexture;
+            desc->Width = (uint)sourceTexture.width;
+            desc->Height = (uint)sourceTexture.height;
+            desc->TextureFormat = textureFormat;
+            desc->ManagedGeneration = managedGeneration;
 
-            ulong operationId = 0;
+            ulong* operationId = stackalloc ulong[1];
             try
             {
-                int ec = NozzleNative.nozzle_unity_sender_enqueue_publish_native_texture(&desc, &operationId);
+                int ec = NozzleNative.nozzle_unity_sender_enqueue_publish_native_texture(desc, operationId);
                 if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "sender enqueue_publish_native_texture")) return false;
                 if (ec != NozzleNative.STATUS_OK)
                 {
@@ -137,7 +135,7 @@ namespace Nozzle
 
                 pendingOperation = new PendingOperation
                 {
-                    OperationId = operationId,
+                    OperationId = *operationId,
                     ManagedGeneration = managedGeneration,
                     StrongTextureReference = sourceTexture,
                     OperationName = "sender publish_native_texture",
@@ -170,21 +168,19 @@ namespace Nozzle
             IntPtr nativeTexture = targetTexture.GetNativeTexturePtr();
             if (nativeTexture == IntPtr.Zero) return false;
 
-            var desc = new NozzleNative.ReceiverAcquireCopyNativeTextureDesc
-            {
-                Receiver = receiver,
-                NativeTexture = (void*)nativeTexture,
-                Width = (uint)targetTexture.width,
-                Height = (uint)targetTexture.height,
-                TextureFormat = textureFormat,
-                TimeoutMs = 0,
-                ManagedGeneration = managedGeneration,
-            };
+            NozzleNative.ReceiverAcquireCopyNativeTextureDesc* desc = stackalloc NozzleNative.ReceiverAcquireCopyNativeTextureDesc[1];
+            desc->Receiver = receiver;
+            desc->NativeTexture = (void*)nativeTexture;
+            desc->Width = (uint)targetTexture.width;
+            desc->Height = (uint)targetTexture.height;
+            desc->TextureFormat = textureFormat;
+            desc->TimeoutMs = 0;
+            desc->ManagedGeneration = managedGeneration;
 
-            ulong operationId = 0;
+            ulong* operationId = stackalloc ulong[1];
             try
             {
-                int ec = NozzleNative.nozzle_unity_receiver_enqueue_acquire_and_copy_native_texture(&desc, &operationId);
+                int ec = NozzleNative.nozzle_unity_receiver_enqueue_acquire_and_copy_native_texture(desc, operationId);
                 if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "receiver enqueue_acquire_and_copy_native_texture")) return false;
                 if (ec != NozzleNative.STATUS_OK)
                 {
@@ -194,7 +190,7 @@ namespace Nozzle
 
                 pendingOperation = new PendingOperation
                 {
-                    OperationId = operationId,
+                    OperationId = *operationId,
                     ManagedGeneration = managedGeneration,
                     StrongTextureReference = targetTexture,
                     OperationName = "receiver acquire/copy native texture",
@@ -218,10 +214,11 @@ namespace Nozzle
         {
             status = default;
             if (!pendingOperation.IsActive) return false;
+            NozzleNative.OperationStatus* nativeStatus = stackalloc NozzleNative.OperationStatus[1];
 
             try
             {
-                int ec = NozzleNative.nozzle_unity_operation_get_status(pendingOperation.OperationId, &status);
+                int ec = NozzleNative.nozzle_unity_operation_get_status(pendingOperation.OperationId, nativeStatus);
                 if (ec != NozzleNative.STATUS_OK)
                 {
                     Debug.LogWarning($"[Nozzle] bridge operation status query failed: op={pendingOperation.OperationId} error={ec}");
@@ -242,17 +239,15 @@ namespace Nozzle
                 return true;
             }
 
-            if (status.State == (int)NozzleNative.OperationState.Queued ||
-                status.State == (int)NozzleNative.OperationState.Running)
+            status = *nativeStatus;
+
+            if (nativeStatus->State == (int)NozzleNative.OperationState.Queued ||
+                nativeStatus->State == (int)NozzleNative.OperationState.Running)
             {
                 return false;
             }
 
-            string message;
-            fixed (byte* messagePtr = status.StatusMessage)
-            {
-                message = FixedUtf8ToString(messagePtr, NozzleNative.STATUS_MESSAGE_CAPACITY);
-            }
+            string message = FixedUtf8ToString(nativeStatus->StatusMessage, NozzleNative.STATUS_MESSAGE_CAPACITY);
 
             if (status.State == (int)NozzleNative.OperationState.Completed)
             {

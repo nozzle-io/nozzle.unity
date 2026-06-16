@@ -62,16 +62,16 @@ namespace Nozzle
             fixed (byte* pName = nameBytes)
             fixed (byte* pApp = appBytes)
             {
-                var desc = new NozzleNative.ReceiverDesc
-                {
-                    Name = pName,
-                    ApplicationName = pApp,
-                    ReceiveMode = 0,
-                };
+                NozzleNative.ReceiverDesc* desc = stackalloc NozzleNative.ReceiverDesc[1];
+                desc->Name = pName;
+                desc->ApplicationName = pApp;
+                desc->ReceiveMode = 0;
+
+                NozzleNative.NozzleReceiver** createdHandle = stackalloc NozzleNative.NozzleReceiver*[1];
 
                 try
                 {
-                    int ec = NozzleNative.nozzle_unity_receiver_create(&desc, &handle);
+                    int ec = NozzleNative.nozzle_unity_receiver_create(desc, createdHandle);
                     if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "receiver create")) return;
 
                     if (ec != 0)
@@ -79,6 +79,8 @@ namespace Nozzle
                         Debug.LogError($"[Nozzle] Failed to create receiver through nozzle_unity bridge: error {ec}");
                         return;
                     }
+
+                    handle = *createdHandle;
                 }
                 catch (DllNotFoundException exception)
                 {

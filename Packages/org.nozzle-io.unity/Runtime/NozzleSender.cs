@@ -50,17 +50,17 @@ namespace Nozzle
             fixed (byte* pName = nameBytes)
             fixed (byte* pApp = appBytes)
             {
-                var desc = new NozzleNative.SenderDesc
-                {
-                    Name = pName,
-                    ApplicationName = pApp,
-                    RingBufferSize = ringBufferSize,
-                    TextureFormat = (int)format,
-                };
+                NozzleNative.SenderDesc* desc = stackalloc NozzleNative.SenderDesc[1];
+                desc->Name = pName;
+                desc->ApplicationName = pApp;
+                desc->RingBufferSize = ringBufferSize;
+                desc->TextureFormat = (int)format;
+
+                NozzleNative.NozzleSender** createdHandle = stackalloc NozzleNative.NozzleSender*[1];
 
                 try
                 {
-                    int ec = NozzleNative.nozzle_unity_sender_create(&desc, &handle);
+                    int ec = NozzleNative.nozzle_unity_sender_create(desc, createdHandle);
                     if (NozzleRuntimeSupport.IsUnsupportedBridgeStatus(ec, "sender create")) return;
 
                     if (ec != 0)
@@ -68,6 +68,8 @@ namespace Nozzle
                         Debug.LogError($"[Nozzle] Failed to create sender through nozzle_unity bridge: error {ec}");
                         return;
                     }
+
+                    handle = *createdHandle;
                 }
                 catch (DllNotFoundException exception)
                 {

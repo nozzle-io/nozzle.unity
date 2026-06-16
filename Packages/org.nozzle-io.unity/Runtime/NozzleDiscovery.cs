@@ -21,11 +21,11 @@ namespace Nozzle
 
             AvailableSenders.Clear();
 
-            var array = new NozzleNative.SenderInfoArray();
+            NozzleNative.SenderInfoArray* array = stackalloc NozzleNative.SenderInfoArray[1];
             int ec;
             try
             {
-                ec = NozzleNative.nozzle_unity_discovery_enumerate_senders(&array);
+                ec = NozzleNative.nozzle_unity_discovery_enumerate_senders(array);
             }
             catch (DllNotFoundException exception)
             {
@@ -47,9 +47,9 @@ namespace Nozzle
             }
 
             var results = new List<NozzleSenderInfo>();
-            for (uint i = 0; i < array.Count; i++)
+            for (uint i = 0; i < array->Count; i++)
             {
-                var item = array.Items[i];
+                var item = array->Items[i];
                 results.Add(new NozzleSenderInfo
                 {
                     Name = PtrToString(item.Name),
@@ -59,7 +59,7 @@ namespace Nozzle
                 });
             }
 
-            NozzleNative.nozzle_unity_discovery_free_sender_info_array(&array);
+            NozzleNative.nozzle_unity_discovery_free_sender_info_array(array);
             AvailableSenders = results;
         }
 
