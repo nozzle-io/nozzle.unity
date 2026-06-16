@@ -103,17 +103,19 @@ namespace Nozzle.UnityValidation
 
         static string ImportSamples(UnityEditor.PackageManager.PackageInfo packageInfo)
         {
-            Sample[] samples = Sample.FindByPackage(packageInfo.name, packageInfo.version);
-            Require(samples != null && samples.Length >= 3, "expected at least three package samples");
+            IEnumerable<Sample> foundSamples = Sample.FindByPackage(packageInfo.name, packageInfo.version);
+            Require(foundSamples != null, "package samples query returned null");
+            List<Sample> samples = new List<Sample>(foundSamples);
+            Require(samples.Count >= 3, "expected at least three package samples");
             List<string> imported = new List<string>();
             foreach (Sample sample in samples)
             {
                 bool ok = sample.Import(Sample.ImportOptions.OverridePreviousImports);
                 Require(ok, "failed to import sample: " + sample.displayName);
-                string importedPath = sample.importedPath.Replace('\\', '/');
-                Require(!String.IsNullOrEmpty(importedPath), "sample imported path is empty: " + sample.displayName);
-                Require(Directory.Exists(importedPath), "sample imported directory is missing: " + importedPath);
-                imported.Add(sample.displayName + "=>" + importedPath);
+                string importPath = sample.importPath.Replace('\\', '/');
+                Require(!String.IsNullOrEmpty(importPath), "sample import path is empty: " + sample.displayName);
+                Require(Directory.Exists(importPath), "sample imported directory is missing: " + importPath);
+                imported.Add(sample.displayName + "=>" + importPath);
             }
             return String.Join(";", imported.ToArray());
         }
