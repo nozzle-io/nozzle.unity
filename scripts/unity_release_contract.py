@@ -138,6 +138,7 @@ SYSTEM_DEPENDENCY_ALLOWLIST: dict[str, set[str]] = {
         "api-ms-win-crt-string-l1-1-0.dll",
         "api-ms-win-crt-time-l1-1-0.dll",
         "api-ms-win-crt-utility-l1-1-0.dll",
+        "BCRYPT.dll",
         "D3D11.dll",
         "DXGI.dll",
         "KERNEL32.dll",
