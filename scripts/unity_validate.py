@@ -101,7 +101,7 @@ namespace Nozzle.UnityValidation
             }
         }
 
-        static string ImportSamples(PackageInfo packageInfo)
+        static string ImportSamples(UnityEditor.PackageManager.PackageInfo packageInfo)
         {
             Sample[] samples = Sample.FindByPackage(packageInfo.name, packageInfo.version);
             Require(samples != null && samples.Length >= 3, "expected at least three package samples");
@@ -127,7 +127,8 @@ namespace Nozzle.UnityValidation
             string validationScope = Arg("-nozzleValidationScope", "player");
 
             BuildTarget buildTarget = (BuildTarget)Enum.Parse(typeof(BuildTarget), buildTargetName);
-            PackageInfo packageInfo = PackageInfo.FindForAssetPath("Packages/org.nozzle-io.unity/package.json");
+            UnityEditor.PackageManager.PackageInfo packageInfo =
+                UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/org.nozzle-io.unity/package.json");
             Require(packageInfo != null, "org.nozzle-io.unity package was not imported by Unity Package Manager");
             Require(packageInfo.name == "org.nozzle-io.unity", "imported package name mismatch: " + packageInfo.name);
             string importedSamples = ImportSamples(packageInfo);
