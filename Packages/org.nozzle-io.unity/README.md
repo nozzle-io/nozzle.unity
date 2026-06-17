@@ -2,7 +2,7 @@
 
 Experimental Unity Package Manager wrapper for [nozzle](https://github.com/nozzle-io/nozzle).
 
-This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player frame evidence. CI may attach staged package artifacts with a compiled bridge binary; the default release-oriented artifacts are CI-staged stub/native ABI artifacts and remain runtime-disabled. An opt-in Unity-header runtime bridge source path exists for Metal/D3D11 builds with external Unity PluginAPI headers, but support is not claimed until Editor/Player smoke proves it.
+This package is **not** a production-ready Unity runtime integration yet. The current C# components target a `nozzle_unity` bridge ABI instead of treating direct `DllImport("nozzle")` calls as final. The Git package ships bridge source and diagnostics, but no committed native bridge binary, no Unity Editor/Player runtime support claim, and no verified Unity Editor/Player frame evidence. CI may attach staged package artifacts with a compiled bridge binary; the default release-oriented artifacts are CI-staged stub/native ABI artifacts and remain runtime-disabled. An opt-in Unity-header runtime bridge source path exists for Metal/D3D11 builds with external Unity PluginAPI headers, but support is not claimed until Player-executed sender/receiver frame smoke proves it.
 
 ## Install
 
@@ -28,12 +28,13 @@ Installing the UPM package only installs package files. It does **not** install 
 The Git package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim.
 
 - No compiled native plugin or native binary import settings are committed under `Runtime/Plugins`.
-- CI-staged stub/native ABI payloads place compiled `nozzle_unity` bridge binaries under `Runtime/Plugins/<platform>/`, but these are only build artifacts and not Editor/Player smoke evidence.
-- Release packaging CI may publish a UPM `.tgz` named `org.nozzle-io.unity-latest-<short_sha>.tgz` or `org.nozzle-io.unity-<tag>.tgz`. That archive is validated by static UPM archive / manifest preflight plus native payload hash checks; it is not Unity Editor import evidence.
+- CI-staged stub/native ABI payloads place compiled `nozzle_unity` bridge binaries under `Runtime/Plugins/<platform>/`, but these are only build artifacts and not Player-executed frame-smoke evidence.
+- Release packaging CI may publish a stub UPM `.tgz` named `org.nozzle-io.unity-latest-<short_sha>.tgz` or `org.nozzle-io.unity-<tag>.tgz`. That archive is validated by static UPM archive / manifest preflight plus native payload hash checks; it is not Unity Editor import evidence.
+- Runtime artifacts are a separate manual workflow and use distinct names: `org.nozzle-io.unity-runtime-latest-<short_sha>.tgz` or `org.nozzle-io.unity-runtime-<tag>.tgz`. Runtime packages must be built from Unity-header runtime payloads and validated with `--support-mode runtime`; a stub payload is invalid for runtime package names.
+- Runtime package scope is currently macOS Metal plus Windows D3D11 only (`--platforms macos,windows-x86_64`). Linux is not included in runtime `.tgz` packages and remains unsupported.
 - Native plugin `.meta` files in release archives are deterministic `PluginImporter` metadata generated for the target plugin paths. Random Unity importer output must not be treated as release evidence.
 - The default bridge build compiles without Unity headers and intentionally reports `runtime_supported = 0`.
-- The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none. That source path captures Metal/D3D11 Unity devices and routes queued sender/receiver/discovery operations into nozzle core, but it is not Editor/Player smoke evidence by itself.
-- Sender, receiver, and discovery bridge operations are not wired to nozzle core yet.
+- The Unity-header bridge path requires externally supplied Unity Native Plugin API headers; this package vendors/downloads none. That source path captures Metal/D3D11 Unity devices and routes queued sender/receiver/discovery operations into nozzle core, but it is not Player-executed frame-smoke evidence by itself. The Unity-header bridge path wires sender, receiver, and discovery operations into nozzle core, but default stub artifacts do not enable that path, and frame exchange remains unproven until separate smoke evidence exists.
 - Metal and D3D11 are intended future targets, but Editor and Player runtime behavior is currently unverified.
 - OpenGL, Vulkan, Linux, mobile, and console runtime support are unsupported until proven by Unity runtime tests.
 
@@ -57,7 +58,7 @@ cmake -S . -B build/nozzle_unity_native \
 cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact --config Release
 ```
 
-No compiled native plugin is committed to this package. The staged artifact and UPM `.tgz` release archive are for CI/download validation and must still be treated as runtime unsupported. Native diagnostics alone are not a support claim: sender/receiver runtime also requires managed render-thread dispatch through `GL.IssuePluginEvent` or `CommandBuffer.IssuePluginEvent`, native operation queue wiring, Unity graphics-device lifecycle handling, and Editor/Player smoke evidence.
+No compiled native plugin is committed to this package. The staged artifact and UPM `.tgz` release archive are for CI/download validation and must still be treated as runtime unsupported. Native diagnostics alone are not a support claim: sender/receiver runtime also requires managed render-thread dispatch through `GL.IssuePluginEvent` or `CommandBuffer.IssuePluginEvent`, native operation queue wiring, Unity graphics-device lifecycle handling, and Player-executed sender/receiver frame-smoke evidence.
 
 Unity-header lifecycle build path:
 
@@ -67,6 +68,8 @@ cmake -S . -B build/nozzle_unity_unity \
   -DNOZZLE_UNITY_PLUGIN_API_DIR=/path/to/Unity/NativePluginAPI
 cmake --build build/nozzle_unity_unity --target nozzle_unity
 ```
+
+The release runtime lane must get those headers from a controlled Unity installation path. This package does not vendor Unity PluginAPI headers and CI must not download them from arbitrary internet sources.
 
 ## Required architecture before support claims
 

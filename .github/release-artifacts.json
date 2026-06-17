@@ -25,6 +25,41 @@
         "package_script": "scripts/package_upm_tgz.py",
         "release_script": "scripts/publish_release_assets.py"
       }
+    },
+    {
+      "id": "nozzle.unity.runtime",
+      "latest_patterns": [
+        "org.nozzle-io.unity-runtime-latest-<short_sha>.tgz"
+      ],
+      "versioned_patterns": [
+        "org.nozzle-io.unity-runtime-<tag>.tgz"
+      ],
+      "workflow": {
+        "file": "runtime-artifacts.yml",
+        "release_job": "release-runtime",
+        "package_jobs": [
+          "package-runtime-upm-tgz"
+        ],
+        "validation_jobs": [
+          "validate-runtime-tgz-macos",
+          "validate-runtime-tgz-windows"
+        ],
+        "aggregate_release": true,
+        "latest_ref": "refs/heads/main",
+        "versioned_trigger": "refs/tags/v*",
+        "versioned_tag_policy": "exact-semver-vX.Y.Z",
+        "dispatch_only": true,
+        "requires_controlled_unity_plugin_api_runners": true,
+        "declared_runtime_platforms": [
+          "macos",
+          "windows-x86_64"
+        ]
+      },
+      "implementation": {
+        "channel_script": "scripts/resolve_release_channel.py --variant runtime",
+        "package_script": "scripts/package_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64",
+        "release_script": "scripts/publish_release_assets.py --variant runtime"
+      }
     }
   ]
 }

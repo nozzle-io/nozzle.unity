@@ -1,0 +1,304 @@
+name: Runtime Unity Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      unity_version:
+        description: Unity Editor version installed on controlled runners
+        required: true
+        default: 6000.4.11f1
+      macos_plugin_api_dir:
+        description: macOS Unity PluginAPI directory
+        required: true
+        default: /Applications/Unity/Hub/Editor/6000.4.11f1/Unity.app/Contents/Resources/PluginAPI
+      windows_plugin_api_dir:
+        description: Windows Unity PluginAPI directory
+        required: true
+        default: 'C:\Program Files\Unity\Hub\Editor\6000.4.11f1\Editor\Data\PluginAPI'
+      publish_release:
+        description: Publish runtime tgz to the resolved GitHub release when running on main/tag
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-native-macos:
+    name: Runtime native payload (macOS Metal universal)
+    runs-on: [self-hosted, macOS, nozzle-unity-runtime]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify Unity PluginAPI provenance
+        run: |
+          test -f "${{ inputs.macos_plugin_api_dir }}/IUnityInterface.h"
+          test -f "${{ inputs.macos_plugin_api_dir }}/IUnityGraphics.h"
+          echo "Unity version: ${{ inputs.unity_version }}"
+          echo "PluginAPI: ${{ inputs.macos_plugin_api_dir }}"
+
+      - name: Configure runtime native bridge artifact build
+        run: >
+          cmake -S . -B build/runtime-native-bridge
+          -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          -DNOZZLE_BUILD_TESTS=OFF
+          -DNOZZLE_INSTALL=OFF
+          -DNOZZLE_UNITY_USE_UNITY_HEADERS=ON
+          -DNOZZLE_UNITY_PLUGIN_API_DIR="${{ inputs.macos_plugin_api_dir }}"
+          -DNOZZLE_UNITY_ARTIFACT_ROOT="$GITHUB_WORKSPACE/build/nozzle-unity-runtime-artifact"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build runtime native bridge artifact
+        run: cmake --build build/runtime-native-bridge --target nozzle_unity_package_artifact --config Release --parallel
+
+      - name: Create runtime native payload
+        run: >
+          python3 scripts/create_native_payload.py
+          --platform macos
+          --artifact-root build/nozzle-unity-runtime-artifact
+          --output-root build/runtime-native-payload-root
+          --support-mode runtime
+
+      - name: Validate runtime native payload
+        run: >
+          python3 scripts/validate_native_payload.py
+          --platform macos
+          --payload build/runtime-native-payload-root/native-payload/macos
+          --support-mode runtime
+
+      - name: Upload runtime native payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: nozzle-unity-runtime-native-payload-macos
+          path: build/runtime-native-payload-root/
+          if-no-files-found: error
+
+  runtime-native-windows:
+    name: Runtime native payload (Windows D3D11 x86_64)
+    runs-on: [self-hosted, Windows, nozzle-unity-runtime]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify Unity PluginAPI provenance
+        shell: pwsh
+        run: |
+          if (!(Test-Path '${{ inputs.windows_plugin_api_dir }}\IUnityInterface.h')) { throw 'IUnityInterface.h missing' }
+          if (!(Test-Path '${{ inputs.windows_plugin_api_dir }}\IUnityGraphics.h')) { throw 'IUnityGraphics.h missing' }
+          Write-Host 'Unity version: ${{ inputs.unity_version }}'
+          Write-Host 'PluginAPI: ${{ inputs.windows_plugin_api_dir }}'
+
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure runtime native bridge artifact build
+        shell: pwsh
+        run: >
+          cmake -S . -B build/runtime-native-bridge
+          -DNOZZLE_UNITY_BUILD_NOZZLE_CORE=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          -DNOZZLE_BUILD_TESTS=OFF
+          -DNOZZLE_INSTALL=OFF
+          -DNOZZLE_UNITY_USE_UNITY_HEADERS=ON
+          -DNOZZLE_UNITY_PLUGIN_API_DIR='${{ inputs.windows_plugin_api_dir }}'
+          -DNOZZLE_UNITY_ARTIFACT_ROOT="$env:GITHUB_WORKSPACE/build/nozzle-unity-runtime-artifact"
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build runtime native bridge artifact
+        run: cmake --build build/runtime-native-bridge --target nozzle_unity_package_artifact --config Release --parallel
+
+      - name: Create runtime native payload
+        run: >
+          python scripts/create_native_payload.py
+          --platform windows-x86_64
+          --artifact-root build/nozzle-unity-runtime-artifact
+          --output-root build/runtime-native-payload-root
+          --support-mode runtime
+
+      - name: Validate runtime native payload
+        run: >
+          python scripts/validate_native_payload.py
+          --platform windows-x86_64
+          --payload build/runtime-native-payload-root/native-payload/windows-x86_64
+          --support-mode runtime
+
+      - name: Upload runtime native payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: nozzle-unity-runtime-native-payload-windows-x86_64
+          path: build/runtime-native-payload-root/
+          if-no-files-found: error
+
+  package-runtime-upm-tgz:
+    name: Package runtime UPM tgz
+    runs-on: ubuntu-latest
+    needs:
+      - runtime-native-macos
+      - runtime-native-windows
+    outputs:
+      artifact_name: ${{ steps.channel.outputs.artifact_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download runtime native payloads
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nozzle-unity-runtime-native-payload-*
+          path: build/downloaded-runtime-payloads
+          merge-multiple: true
+
+      - name: Resolve runtime release artifact channel
+        id: channel
+        run: python3 scripts/resolve_release_channel.py --variant runtime --github-output "$GITHUB_OUTPUT"
+
+      - name: Package runtime UPM tgz
+        run: >
+          python3 scripts/package_upm_tgz.py
+          --payload-root build/downloaded-runtime-payloads/native-payload
+          --output "build/upm/${{ steps.channel.outputs.artifact_name }}"
+          --expected-source-commit "$GITHUB_SHA"
+          --platforms macos,windows-x86_64
+          --support-mode runtime
+
+      - name: Validate runtime UPM archive
+        run: >
+          python3 scripts/validate_upm_tgz.py
+          --tgz "build/upm/${{ steps.channel.outputs.artifact_name }}"
+          --payload-root build/downloaded-runtime-payloads/native-payload
+          --expected-source-commit "$GITHUB_SHA"
+          --platforms macos,windows-x86_64
+          --support-mode runtime
+
+      - name: Upload runtime UPM tgz
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.channel.outputs.artifact_name }}
+          path: build/upm/${{ steps.channel.outputs.artifact_name }}
+          if-no-files-found: error
+
+  validate-runtime-tgz-macos:
+    name: Validate runtime tgz with Unity Player build (macOS Metal)
+    runs-on: [self-hosted, macOS, nozzle-unity-runtime]
+    needs:
+      - runtime-native-macos
+      - runtime-native-windows
+      - package-runtime-upm-tgz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download runtime UPM tgz
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}
+          path: build/runtime-upm
+
+      - name: Download runtime native payloads
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nozzle-unity-runtime-native-payload-*
+          path: build/downloaded-runtime-payloads
+          merge-multiple: true
+
+      - name: Validate runtime tgz through Unity import and Player build
+        run: >
+          python3 scripts/unity_validate.py
+          --unity "/Applications/Unity/Hub/Editor/${{ inputs.unity_version }}/Unity.app/Contents/MacOS/Unity"
+          --package-source tgz
+          --validation-scope player
+          --target macos
+          --tgz "build/runtime-upm/${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}"
+          --tgz-payload-root build/downloaded-runtime-payloads/native-payload
+          --tgz-expected-source-commit "$GITHUB_SHA"
+          --tgz-platforms macos,windows-x86_64
+          --tgz-support-mode runtime
+          --expect-runtime-supported
+          --project build/unity-validation-runtime-tgz/project
+
+  validate-runtime-tgz-windows:
+    name: Validate runtime tgz with Unity Player build (Windows D3D11)
+    runs-on: [self-hosted, Windows, nozzle-unity-runtime]
+    needs:
+      - runtime-native-macos
+      - runtime-native-windows
+      - package-runtime-upm-tgz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download runtime UPM tgz
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}
+          path: build/runtime-upm
+
+      - name: Download runtime native payloads
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nozzle-unity-runtime-native-payload-*
+          path: build/downloaded-runtime-payloads
+          merge-multiple: true
+
+      - name: Validate runtime tgz through Unity import and Player build
+        shell: pwsh
+        run: >
+          python scripts/unity_validate.py
+          --unity "C:\Program Files\Unity\Hub\Editor\${{ inputs.unity_version }}\Editor\Unity.exe"
+          --package-source tgz
+          --validation-scope player
+          --target windows-x86_64
+          --tgz "build/runtime-upm/${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}"
+          --tgz-payload-root build/downloaded-runtime-payloads/native-payload
+          --tgz-expected-source-commit "${{ github.sha }}"
+          --tgz-platforms macos,windows-x86_64
+          --tgz-support-mode runtime
+          --expect-runtime-supported
+          --project build/unity-validation-runtime-tgz/project
+
+  release-runtime:
+    name: Publish runtime UPM tgz release asset
+    runs-on: ubuntu-latest
+    needs:
+      - package-runtime-upm-tgz
+      - validate-runtime-tgz-macos
+      - validate-runtime-tgz-windows
+    if: inputs.publish_release == 'true' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download runtime UPM tgz
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}
+          path: build/release
+
+      - name: Publish runtime GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          python3 scripts/publish_release_assets.py
+          --variant runtime
+          --artifact "build/release/${{ needs.package-runtime-upm-tgz.outputs.artifact_name }}"

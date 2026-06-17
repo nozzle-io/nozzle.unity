@@ -54,12 +54,23 @@ def extract_tgz(tgz: Path, destination: Path) -> Path:
     return package_root
 
 
-def validate_against_payloads(package_root: Path, payload_root: Path, expected_source_commit: str) -> None:
+def parse_platforms(text: str) -> list[str]:
+    platforms = [item.strip() for item in text.split(",") if item.strip()]
+    if not platforms:
+        fail("--platforms must contain at least one platform")
+    invalid = sorted(set(platforms) - set(PLATFORMS))
+    if invalid:
+        fail(f"unsupported package platform(s): {invalid!r}")
+    return platforms
+
+
+def validate_against_payloads(package_root: Path, payload_root: Path, expected_source_commit: str, platforms: list[str], support_mode: str | None = None) -> None:
     if (payload_root / "native-payload").is_dir():
         payload_root = payload_root / "native-payload"
-    for platform_key, contract in PLATFORMS.items():
+    for platform_key in platforms:
+        contract = PLATFORMS[platform_key]
         payload_dir = payload_root / platform_key
-        payload = validate_payload_schema(payload_dir, platform_key, expected_source_commit)
+        payload = validate_payload_schema(payload_dir, platform_key, expected_source_commit, expected_support_mode=support_mode)
         binary = package_root / contract.plugin_relative_path
         meta = Path(f"{binary}.meta")
         if not binary.is_file():
@@ -73,7 +84,8 @@ def validate_against_payloads(package_root: Path, payload_root: Path, expected_s
         validate_plugin_meta(meta, contract, package_root)
 
     expected = set()
-    for contract in PLATFORMS.values():
+    for platform_key in platforms:
+        contract = PLATFORMS[platform_key]
         expected.add(contract.plugin_relative_path.as_posix())
         expected.add(f"{contract.plugin_relative_path.as_posix()}.meta")
     actual = {
@@ -139,18 +151,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tgz", required=True, type=Path)
     parser.add_argument("--payload-root", required=True, type=Path)
     parser.add_argument("--expected-source-commit", default=None, help="Expected git SHA for all native payloads; defaults to git rev-parse HEAD")
+    parser.add_argument("--platforms", default=",".join(sorted(PLATFORMS)), help="Comma-separated native payload platforms expected in the package.")
+    parser.add_argument("--support-mode", choices=("stub", "runtime"), default=None, help="Require packaged payloads to declare this support mode.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     expected_source_commit = args.expected_source_commit or current_git_sha(ROOT)
+    platforms = parse_platforms(args.platforms)
     with tempfile.TemporaryDirectory(prefix="nozzle-unity-upm-") as tmp:
         tmp_path = Path(tmp)
         package_root = extract_tgz(args.tgz.resolve(), tmp_path / "extract")
         validate_required_package_files(package_root)
         validate_no_forbidden_package_files(package_root)
-        validate_against_payloads(package_root, args.payload_root.resolve(), expected_source_commit)
+        validate_against_payloads(package_root, args.payload_root.resolve(), expected_source_commit, platforms, args.support_mode)
         write_manifest_preflight(args.tgz.resolve(), tmp_path / "manifest-preflight")
     print(f"UPM tgz static validation passed: {args.tgz}")
 

@@ -28,6 +28,13 @@ cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact -
 
 The default CI artifact is still runtime-unsupported. Without Unity Native Plugin API headers, `nozzle_unity_get_support` must report `runtime_supported = 0`. Unity-header runtime payloads are a separate explicit build mode.
 
+## Runtime artifact package family
+
+Runtime packages are separate from the default stub package. Stub packages use `org.nozzle-io.unity-latest-<short_sha>.tgz` / `org.nozzle-io.unity-<tag>.tgz` and must report `runtime_supported = 0`.
+
+Runtime packages use `org.nozzle-io.unity-runtime-latest-<short_sha>.tgz` / `org.nozzle-io.unity-runtime-<tag>.tgz`. They must be built with Unity PluginAPI headers from a controlled local Unity installation, package with `scripts/package_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64`, validate with `scripts/validate_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64`, and must not include Linux or stub payloads. Linux remains outside the runtime package scope. Runtime package validation proves packaging, payload provenance, Unity import, Player build inclusion, and bridge diagnostics; it does not execute a Player or prove sender/receiver frame exchange.
+
+
 ## Real Unity-header build path
 
 A real Unity native plugin build must be configured with Unity Native Plugin API headers supplied by the build environment. This repository does not vendor or download them.
@@ -40,4 +47,4 @@ cmake -S . -B build/nozzle_unity_unity \
 cmake --build build/nozzle_unity_unity --target nozzle_unity
 ```
 
-The Unity-header source compiles `UnityPluginLoad`, `UnityPluginUnload`, `IUnityGraphics` device callbacks, Metal/D3D11 device capture, a render-event function pointer, and queued sender/receiver/discovery calls into nozzle core. It still is not a support claim until Unity Editor and Player smoke tests prove frame exchange.
+The Unity-header source compiles `UnityPluginLoad`, `UnityPluginUnload`, `IUnityGraphics` device callbacks, Metal/D3D11 device capture, a render-event function pointer, and queued sender/receiver/discovery calls into nozzle core. It still is not a support claim until Player-executed sender/receiver smoke tests prove frame exchange.

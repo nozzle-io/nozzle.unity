@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact", required=True, type=Path)
     parser.add_argument("--ref")
     parser.add_argument("--sha")
+    parser.add_argument("--variant", choices=("stub", "runtime"), default="stub")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -48,7 +49,7 @@ def main() -> None:
     artifact = args.artifact.resolve()
     if not artifact.is_file():
         fail(f"release artifact is missing: {artifact}")
-    info = resolve(args.ref, args.sha)
+    info = resolve(args.ref, args.sha, args.variant)
     if info["channel"] == "ci":
         print("CI channel artifact; release mutation skipped.")
         return
@@ -63,7 +64,8 @@ def main() -> None:
         if not release_exists("latest"):
             run(["gh", "release", "create", "latest", "--title", "Latest development snapshot", "--notes", "Moving nozzle.unity development snapshot.", "--prerelease"])
         for existing in sorted(asset_names("latest")):
-            if existing.startswith("org.nozzle-io.unity-latest-") and existing.endswith(".tgz"):
+            expected_prefix = "org.nozzle-io.unity-runtime-latest-" if args.variant == "runtime" else "org.nozzle-io.unity-latest-"
+            if existing.startswith(expected_prefix) and existing.endswith(".tgz"):
                 run(["gh", "release", "delete-asset", "latest", existing, "--yes"])
         run(["gh", "release", "upload", "latest", str(artifact), "--clobber"])
     else:

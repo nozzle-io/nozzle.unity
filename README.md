@@ -16,13 +16,15 @@ Do not use the repository root URL; the package manifest is under `Packages/org.
 
 ## Current status
 
-The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI still builds per-OS staged stub/native ABI artifacts without Unity Native Plugin API headers; those release-oriented artifacts intentionally report `runtime_supported = 0`. The source tree also contains an opt-in Unity-header runtime bridge path that can be built locally with external Unity PluginAPI headers and maps the #136 render-thread queue to nozzle core sender/receiver/discovery calls for Metal/D3D11, but Editor/Player frame smoke evidence is still required before any runtime support claim.
+The Git UPM package does not bundle native binaries, and it has no Unity Editor/Player runtime support claim. CI still builds per-OS staged stub/native ABI artifacts without Unity Native Plugin API headers; those release-oriented artifacts intentionally report `runtime_supported = 0`. The source tree also contains an opt-in Unity-header runtime bridge path that can be built locally with external Unity PluginAPI headers and maps the #136 render-thread queue to nozzle core sender/receiver/discovery calls for Metal/D3D11, but Player-executed sender/receiver frame-smoke evidence is still required before any runtime support claim.
 
 - Package manifest, runtime C# bindings, and a source-only `nozzle_unity` bridge ABI exist.
 - `NozzleSender`, `NozzleReceiver`, and `NozzleDiscovery` route through bridge support diagnostics before attempting runtime work.
 - The package does **not** bundle `libnozzle.dylib`, `nozzle.dll`, or a compiled `nozzle_unity` bridge plugin.
 - CI builds macOS, Windows, and Linux CI-staged stub/native ABI payloads with compiled `nozzle_unity` native bridge binaries when platform dependencies are available.
-- CI assembles a validated UPM `.tgz` from those payloads: `org.nozzle-io.unity-latest-<short_sha>.tgz` for `main` and `org.nozzle-io.unity-<tag>.tgz` for tags.
+- CI assembles a validated stub UPM `.tgz` from those payloads: `org.nozzle-io.unity-latest-<short_sha>.tgz` for `main` and `org.nozzle-io.unity-<tag>.tgz` for tags.
+- A separate manual runtime artifact workflow may build Unity-header payloads only on controlled Unity runners with local Unity PluginAPI headers. Its runtime package names are intentionally distinct: `org.nozzle-io.unity-runtime-latest-<short_sha>.tgz` for `main` and `org.nozzle-io.unity-runtime-<tag>.tgz` for tags.
+- Runtime artifact scope is currently macOS Metal and Windows D3D11 only. Linux is not included in runtime `.tgz` packages.
 - The `.tgz` validator is static UPM archive / manifest preflight only. It verifies archive shape, native plugin payload hashes, deterministic `PluginImporter` `.meta` files, dependency inspection evidence, and package metadata; it does not run Unity Editor import.
 - The default native bridge build compiles without Unity headers and reports runtime support as disabled.
 - No Unity Editor or Player runtime support is claimed.
@@ -51,6 +53,10 @@ cmake --build build/nozzle_unity_native --target nozzle_unity_package_artifact -
 The staged artifact is written under `build/nozzle_unity_native/nozzle-unity-artifact/Packages/org.nozzle-io.unity` with the native binary under `Runtime/Plugins/<platform>/`. It is a build artifact, not a runtime support claim.
 
 Release packaging CI converts validated platform payloads into a single UPM archive. The aggregate package starts from the checked-in source package and copies only validated `Runtime/Plugins/...` binary plus `.meta` payloads from platform jobs; it does not overlay full platform package trees.
+
+Runtime packaging is a separate path, not a rename of the stub package. It requires payloads created with `scripts/create_native_payload.py --support-mode runtime`, packages only the declared runtime platforms with `scripts/package_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64`, validates the archive with `scripts/validate_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64`, and then runs `scripts/unity_validate.py --package-source tgz --validation-scope player --tgz-platforms macos,windows-x86_64 --tgz-support-mode runtime --expect-runtime-supported` on the controlled macOS/Windows Unity runners. A runtime-named package must fail validation if a stub payload is supplied or if a declared runtime platform payload is missing.
+
+The runtime workflow does not vendor or download Unity PluginAPI headers. Controlled runners must provide the Unity install, and the workflow logs the Unity version plus exact PluginAPI directory before CMake receives `NOZZLE_UNITY_USE_UNITY_HEADERS=ON` and `NOZZLE_UNITY_PLUGIN_API_DIR=...`.
 
 ## Unity Editor/Player validation
 
@@ -108,6 +114,24 @@ python3 scripts/unity_validate.py \
 
 The validation script imports all declared package samples through Unity's `Sample` API. `--validation-scope import` stops after UPM import, script compilation, unsupported-graphics diagnostics, and sample import. `--validation-scope player` additionally requires the native bridge diagnostics, `PluginImporter` Editor/Player compatibility, a successful minimal Player build, and native plugin inclusion in the Player output.
 
+For runtime `.tgz` archives built by `.github/workflows/runtime-artifacts.yml`, validate macOS/Windows with Unity import plus Player-build validation, pass a runtime payload root, and require the bridge diagnostics to report `runtime_supported = true`:
+
+```sh
+python3 scripts/unity_validate.py \
+  --package-source tgz \
+  --validation-scope player \
+  --target macos \
+  --tgz build/upm/org.nozzle-io.unity-runtime-latest-local.tgz \
+  --tgz-payload-root build/downloaded-runtime-payloads/native-payload \
+  --tgz-expected-source-commit <artifact-source-sha> \
+  --tgz-platforms macos,windows-x86_64 \
+  --tgz-support-mode runtime \
+  --expect-runtime-supported \
+  --project build/unity-validation-runtime-tgz/project
+```
+
+Do not run that command against the default stub artifact; it must fail because stub payloads report runtime unsupported. This validation does not execute a Player and does not prove sender/receiver frame exchange. Do not infer Linux runtime support from the stub release package; Linux is outside the runtime artifact scope until a separate runtime payload and frame-smoke evidence exist.
+
 Git validation requires an explicit full commit SHA fragment and verifies Unity's `Packages/packages-lock.json` resolved that revision through a structured `hash` or `revision` field, not merely by echoing the manifest URL. `.tgz` validation records the archive filename, sha256, and package version from the archive; it also requires `--tgz-payload-root` so the existing static `.tgz` validator can compare native payload hashes before Unity import. The payload root must contain the complete native payload set for every packaged platform, not just the local `--target`, because the `.tgz` validator audits the full release archive. Pass `--tgz-expected-source-commit` unless the archive and payloads were built from the current checkout. Do not use the local repo SHA as a substitute for the imported package artifact identity.
 
 Success prints `NOZZLE_UNITY_VALIDATION_RESULT` with the Unity version, local repo SHA, imported package identity, nozzle SHA, project path, Editor log path, Player output path, and native plugin files found in the Player when applicable. A missing or broken Unity Editor is an environment blocker, not a runtime failure; report the exact Unity path and process/signature error instead of claiming validation passed.
@@ -121,7 +145,7 @@ cmake -S . -B build/nozzle_unity_unity \
 cmake --build build/nozzle_unity_unity --target nozzle_unity
 ```
 
-This repository vendors/downloads no Unity headers. The Unity-header bridge source now contains lifecycle callbacks, Metal/D3D11 device capture, render-event queue execution, and nozzle core sender/receiver/discovery wiring, but it must be built with an external Unity PluginAPI directory and still needs Unity Editor/Player frame smoke validation.
+This repository vendors/downloads no Unity headers. The Unity-header bridge source now contains lifecycle callbacks, Metal/D3D11 device capture, render-event queue execution, and nozzle core sender/receiver/discovery wiring, but it must be built with an external Unity PluginAPI directory and still needs Player-executed sender/receiver frame-smoke validation.
 
 ## Architecture
 

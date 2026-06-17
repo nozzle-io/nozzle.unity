@@ -29,14 +29,16 @@ def git_value(args: list[str]) -> str:
     return result.stdout.strip()
 
 
-def resolve(ref: str | None, sha: str | None) -> dict[str, str]:
+def resolve(ref: str | None, sha: str | None, variant: str = "stub") -> dict[str, str]:
+    if variant not in {"stub", "runtime"}:
+        fail(f"release artifact variant must be stub or runtime, got {variant!r}")
     manifest = package_manifest(PACKAGE_ROOT)
     resolved_sha = sha or git_value(["rev-parse", "HEAD"])
     short_sha = resolved_sha[:7]
     resolved_ref = ref or os.environ.get("GITHUB_REF") or git_value(["symbolic-ref", "-q", "HEAD"])
     if resolved_ref == "refs/heads/main":
         channel = "latest"
-        artifact_name = f"{PACKAGE_NAME}-latest-{short_sha}.tgz"
+        artifact_name = f"{PACKAGE_NAME}-{'runtime-latest-' if variant == 'runtime' else 'latest-'}{short_sha}.tgz"
         release_tag = "latest"
     elif resolved_ref.startswith("refs/tags/"):
         tag = resolved_ref.removeprefix("refs/tags/")
@@ -47,13 +49,14 @@ def resolve(ref: str | None, sha: str | None) -> dict[str, str]:
         if manifest["version"] != version:
             fail(f"package.json version {manifest['version']!r} must match release tag {tag!r}")
         channel = "versioned"
-        artifact_name = f"{PACKAGE_NAME}-{tag}.tgz"
+        artifact_name = f"{PACKAGE_NAME}-{'runtime-' if variant == 'runtime' else ''}{tag}.tgz"
         release_tag = tag
     else:
         channel = "ci"
-        artifact_name = f"{PACKAGE_NAME}-ci-{short_sha}.tgz"
+        artifact_name = f"{PACKAGE_NAME}-{'runtime-ci-' if variant == 'runtime' else 'ci-'}{short_sha}.tgz"
         release_tag = ""
     return {
+        "variant": variant,
         "channel": channel,
         "artifact_name": artifact_name,
         "release_tag": release_tag,
@@ -69,9 +72,10 @@ def main() -> None:
     parser.add_argument("--ref")
     parser.add_argument("--sha")
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--variant", choices=("stub", "runtime"), default="stub")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    info = resolve(args.ref, args.sha)
+    info = resolve(args.ref, args.sha, args.variant)
     if args.github_output is not None:
         with args.github_output.open("a", encoding="utf-8") as file:
             for key, value in info.items():

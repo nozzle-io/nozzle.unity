@@ -550,7 +550,13 @@ def check_native_bridge_sources() -> None:
     require_text(contract, "SUPPORT_MODES")
     require_text(ROOT / "scripts" / "create_native_payload.py", "--support-mode")
     require_text(ROOT / "scripts" / "validate_native_payload.py", "--support-mode")
+    require_text(ROOT / "scripts" / "package_upm_tgz.py", "--support-mode")
+    require_text(ROOT / "scripts" / "package_upm_tgz.py", "--platforms")
     require_text(ROOT / "scripts" / "validate_upm_tgz.py", "Static UPM archive / manifest preflight")
+    require_text(ROOT / "scripts" / "validate_upm_tgz.py", "--support-mode")
+    require_text(ROOT / "scripts" / "validate_upm_tgz.py", "--platforms")
+    require_text(ROOT / "scripts" / "resolve_release_channel.py", "--variant")
+    require_text(ROOT / "scripts" / "publish_release_assets.py", "--variant")
     unity_validate = ROOT / "scripts" / "unity_validate.py"
     require_text(unity_validate, "UNITY_EDITOR")
     require_text(unity_validate, "UNITY_EDITOR_PATH")
@@ -559,6 +565,9 @@ def check_native_bridge_sources() -> None:
     require_text(unity_validate, "--expect-runtime-supported")
     require_text(unity_validate, "-nozzleValidationExpectRuntimeSupported")
     require_text(unity_validate, "--tgz-payload-root")
+    require_text(unity_validate, "--tgz-platforms")
+    require_text(unity_validate, "--tgz-support-mode")
+    require_text(unity_validate, "parse_platforms")
     require_text(unity_validate, "packages-lock.json")
     require_text(unity_validate, "requested_revision")
     require_text(unity_validate, "artifact_sha256")
@@ -574,6 +583,386 @@ def check_native_bridge_sources() -> None:
     require_text(unity_validate, "Nozzle.UnityValidation.Editor.asmdef")
     require_text(unity_validate, '"references": ["Nozzle.Unity"]', "validation asmdef must explicitly reference package runtime asmdef")
     require_text(unity_validate, '"includePlatforms": ["Editor"]', "validation asmdef must be Editor-only")
+    require_text(unity_validate, "--expect-runtime-supported requires --validation-scope player")
+
+    release_manifest = load_json(ROOT / ".github" / "release-artifacts.json")
+    artifact_ids = {artifact.get("id") for artifact in release_manifest.get("artifacts", []) if isinstance(artifact, dict)}
+    if "nozzle.unity.runtime" not in artifact_ids:
+        fail(".github/release-artifacts.json must declare the separate runtime artifact family")
+
+    runtime_workflow = ROOT / ".github" / "workflows" / "runtime-artifacts.yml"
+    require_file(runtime_workflow)
+    for needle in [
+        "Runtime Unity Artifacts",
+        "workflow_dispatch",
+        "nozzle-unity-runtime",
+        "Unity PluginAPI",
+        "NOZZLE_UNITY_USE_UNITY_HEADERS=ON",
+        "NOZZLE_UNITY_PLUGIN_API_DIR",
+        "--variant runtime",
+        "--support-mode runtime",
+        "--platforms macos,windows-x86_64",
+        "unity_validate.py",
+        "--tgz-support-mode runtime",
+        "--expect-runtime-supported",
+        "publish_release",
+    ]:
+        require_text(runtime_workflow, needle, f"runtime workflow contract {needle}")
+
+    root_readme = ROOT / "README.md"
+    package_readme = PACKAGE_ROOT / "README.md"
+    supported_platforms = DOCUMENTATION_ROOT / "supported-platforms.md"
+    for path in [root_readme, package_readme, supported_platforms]:
+        require_text(path, "org.nozzle-io.unity-runtime-latest", "runtime artifact naming")
+        require_text(path, "macos,windows-x86_64", "runtime platform scope")
+        require_text(path, "Linux", "explicit Linux runtime non-goal")
+    require_text(root_readme, "--tgz-platforms macos,windows-x86_64", "runtime unity_validate platform scope")
+    native_readme = NATIVE_SOURCE_ROOT / "README.md"
+    require_text(native_readme, "Runtime artifact package family")
+    require_text(native_readme, "org.nozzle-io.unity-runtime-latest")
+    require_text(native_readme, "scripts/package_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64")
+    require_text(native_readme, "scripts/validate_upm_tgz.py --support-mode runtime --platforms macos,windows-x86_64")
+    require_text(native_readme, "Linux remains outside the runtime package scope")
+
+    project_sanity_workflow = ROOT / ".github" / "workflows" / "project-sanity.yml"
+    require_file(project_sanity_workflow)
+    require_text(project_sanity_workflow, "--support-mode stub", "stub package workflow support-mode binding")
+
+
+def run_contract_command(command: list[str], *, expect_success: bool) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if expect_success and result.returncode != 0:
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        fail(f"command failed unexpectedly: {' '.join(command)}")
+    if not expect_success and result.returncode == 0:
+        fail(f"command succeeded but was expected to fail: {' '.join(command)}")
+    return result
+
+
+def check_runtime_package_contract() -> None:
+    latest = run_contract_command(
+        [
+            sys.executable,
+            "scripts/resolve_release_channel.py",
+            "--variant",
+            "runtime",
+            "--ref",
+            "refs/heads/main",
+            "--sha",
+            "1234567890abcdef1234567890abcdef12345678",
+            "--json",
+        ],
+        expect_success=True,
+    )
+    latest_info = json.loads(latest.stdout)
+    expect_equal(latest_info.get("artifact_name"), "org.nozzle-io.unity-runtime-latest-1234567.tgz", "runtime latest artifact name")
+    expect_equal(latest_info.get("variant"), "runtime", "runtime release variant")
+
+    stub = run_contract_command(
+        [
+            sys.executable,
+            "scripts/resolve_release_channel.py",
+            "--ref",
+            "refs/heads/main",
+            "--sha",
+            "1234567890abcdef1234567890abcdef12345678",
+            "--json",
+        ],
+        expect_success=True,
+    )
+    stub_info = json.loads(stub.stdout)
+    expect_equal(stub_info.get("artifact_name"), "org.nozzle-io.unity-latest-1234567.tgz", "stub latest artifact name")
+
+    version = load_json(PACKAGE_ROOT / "package.json")["version"]
+    tag_ref = f"refs/tags/v{version}"
+    for variant, expected in [
+        ("stub", f"org.nozzle-io.unity-v{version}.tgz"),
+        ("runtime", f"org.nozzle-io.unity-runtime-v{version}.tgz"),
+    ]:
+        command = [
+            sys.executable,
+            "scripts/resolve_release_channel.py",
+            "--ref",
+            tag_ref,
+            "--sha",
+            "1234567890abcdef1234567890abcdef12345678",
+            "--json",
+        ]
+        if variant == "runtime":
+            command[2:2] = ["--variant", "runtime"]
+        result = run_contract_command(command, expect_success=True)
+        info = json.loads(result.stdout)
+        expect_equal(info.get("artifact_name"), expected, f"{variant} versioned artifact name")
+
+    for variant, expected in [
+        ("stub", "org.nozzle-io.unity-ci-1234567.tgz"),
+        ("runtime", "org.nozzle-io.unity-runtime-ci-1234567.tgz"),
+    ]:
+        command = [
+            sys.executable,
+            "scripts/resolve_release_channel.py",
+            "--ref",
+            "refs/heads/feature",
+            "--sha",
+            "1234567890abcdef1234567890abcdef12345678",
+            "--json",
+        ]
+        if variant == "runtime":
+            command[2:2] = ["--variant", "runtime"]
+        result = run_contract_command(command, expect_success=True)
+        info = json.loads(result.stdout)
+        expect_equal(info.get("artifact_name"), expected, f"{variant} ci artifact name")
+
+    scripts_root = str((ROOT / "scripts").resolve())
+    added_path = False
+    if scripts_root not in sys.path:
+        sys.path.insert(0, scripts_root)
+        added_path = True
+    try:
+        from unity_release_contract import PACKAGE_NAME, PLATFORMS, VALIDATION_SCHEMA_VERSION, plugin_meta_text, sha256_file
+    finally:
+        if added_path:
+            sys.path.remove(scripts_root)
+
+    source_commit = "1" * 40
+
+    def write_payload(payload_root: Path, platform_key: str, support_mode: str) -> None:
+        contract = PLATFORMS[platform_key]
+        payload_dir = payload_root / "native-payload" / platform_key
+        binary = payload_dir / contract.plugin_relative_path
+        meta = Path(f"{binary}.meta")
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(f"fake {platform_key} {support_mode}\n".encode("utf-8"))
+        meta.write_text(plugin_meta_text(contract), encoding="utf-8")
+        validation = {
+            "schema_version": VALIDATION_SCHEMA_VERSION,
+            "source_commit": source_commit,
+            "package": {
+                "name": PACKAGE_NAME,
+                "version": load_json(PACKAGE_ROOT / "package.json")["version"],
+            },
+            "platform": platform_key,
+            "expected_unity_plugin_path": contract.plugin_relative_path.as_posix(),
+            "binary": {
+                "relative_path": contract.plugin_relative_path.as_posix(),
+                "sha256": sha256_file(binary),
+            },
+            "meta": {
+                "relative_path": f"{contract.plugin_relative_path.as_posix()}.meta",
+                "sha256": sha256_file(meta),
+            },
+            "architecture": {"result": "pass"},
+            "dependencies": {"result": "pass"},
+            "exports": {"result": "pass"},
+            "support": {"result": "pass"},
+            "expected_support_mode": support_mode,
+        }
+        (payload_dir / "validation.json").write_text(json.dumps(validation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="nozzle-unity-runtime-package-contract-") as tmp:
+        tmp_path = Path(tmp)
+        payload_root = tmp_path / "payloads"
+        for platform_key in ["macos", "windows-x86_64"]:
+            write_payload(payload_root, platform_key, "runtime")
+        write_payload(payload_root, "linux-x86_64", "stub")
+        missing_windows_payload_root = tmp_path / "missing-windows-payloads"
+        write_payload(missing_windows_payload_root, "macos", "runtime")
+        stub_macos_payload_root = tmp_path / "stub-macos-payloads"
+        write_payload(stub_macos_payload_root, "macos", "stub")
+        write_payload(stub_macos_payload_root, "windows-x86_64", "runtime")
+
+        runtime_tgz = tmp_path / "org.nozzle-io.unity-runtime-contract.tgz"
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--output",
+                str(runtime_tgz),
+                "--work-dir",
+                str(tmp_path / "package-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=True,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/validate_upm_tgz.py",
+                "--tgz",
+                str(runtime_tgz),
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=True,
+        )
+        macos_only_tgz = tmp_path / "bad-runtime-macos-only.tgz"
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--output",
+                str(macos_only_tgz),
+                "--work-dir",
+                str(tmp_path / "macos-only-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=True,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/validate_upm_tgz.py",
+                "--tgz",
+                str(macos_only_tgz),
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(missing_windows_payload_root / "native-payload"),
+                "--output",
+                str(tmp_path / "bad-runtime-missing-windows.tgz"),
+                "--work-dir",
+                str(tmp_path / "bad-missing-windows-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+        stub_macos_tgz = tmp_path / "stub-macos-package.tgz"
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(stub_macos_payload_root / "native-payload"),
+                "--output",
+                str(stub_macos_tgz),
+                "--work-dir",
+                str(tmp_path / "stub-macos-package-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+            ],
+            expect_success=True,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/validate_upm_tgz.py",
+                "--tgz",
+                str(stub_macos_tgz),
+                "--payload-root",
+                str(stub_macos_payload_root / "native-payload"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(stub_macos_payload_root / "native-payload"),
+                "--output",
+                str(tmp_path / "bad-runtime-stub-macos.tgz"),
+                "--work-dir",
+                str(tmp_path / "bad-stub-macos-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/package_upm_tgz.py",
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--output",
+                str(tmp_path / "bad-runtime-stub.tgz"),
+                "--work-dir",
+                str(tmp_path / "bad-package-work"),
+                "--expected-source-commit",
+                source_commit,
+                "--platforms",
+                "macos,windows-x86_64,linux-x86_64",
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+        run_contract_command(
+            [
+                sys.executable,
+                "scripts/validate_upm_tgz.py",
+                "--tgz",
+                str(runtime_tgz),
+                "--payload-root",
+                str(payload_root / "native-payload"),
+                "--expected-source-commit",
+                source_commit,
+                "--support-mode",
+                "runtime",
+            ],
+            expect_success=False,
+        )
+    print("Runtime package contract: separate naming, runtime payload acceptance, stub/missing-platform rejection passed.")
 
 
 def run_cmake_configure(build_dir: Path, definitions: list[str]) -> None:
@@ -937,6 +1326,7 @@ def main() -> None:
     check_runtime_sources()
     check_unity_validate_generated_project_contract()
     check_native_bridge_sources()
+    check_runtime_package_contract()
     check_docs_and_samples()
     check_submodules()
     if args.skip_stub_build:

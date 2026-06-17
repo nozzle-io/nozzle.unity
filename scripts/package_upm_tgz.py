@@ -47,9 +47,20 @@ def copy_payload(payload_dir: Path, package_root: Path, platform_key: str, expec
     return data
 
 
-def assert_expected_plugin_set(package_root: Path) -> None:
+def parse_platforms(text: str) -> list[str]:
+    platforms = [item.strip() for item in text.split(",") if item.strip()]
+    if not platforms:
+        fail("--platforms must contain at least one platform")
+    invalid = sorted(set(platforms) - set(PLATFORMS))
+    if invalid:
+        fail(f"unsupported package platform(s): {invalid!r}")
+    return platforms
+
+
+def assert_expected_plugin_set(package_root: Path, platforms: list[str]) -> None:
     expected = set()
-    for contract in PLATFORMS.values():
+    for platform_key in platforms:
+        contract = PLATFORMS[platform_key]
         expected.add(contract.plugin_relative_path.as_posix())
         expected.add(f"{contract.plugin_relative_path.as_posix()}.meta")
     actual = {
@@ -92,6 +103,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--work-dir", default=ROOT / "build" / "upm-package-work", type=Path)
     parser.add_argument("--expected-source-commit", default=None, help="Expected git SHA for all native payloads; defaults to git rev-parse HEAD")
+    parser.add_argument("--platforms", default=",".join(sorted(PLATFORMS)), help="Comma-separated native payload platforms to include.")
+    parser.add_argument("--support-mode", choices=("stub", "runtime"), default=None, help="Require all included payloads to declare this support mode.")
     return parser.parse_args()
 
 
@@ -100,6 +113,7 @@ def main() -> None:
     payload_root = args.payload_root.resolve()
     if (payload_root / "native-payload").is_dir():
         payload_root = payload_root / "native-payload"
+    platforms = parse_platforms(args.platforms)
     expected_source_commit = args.expected_source_commit or current_git_sha(ROOT)
     work_dir = args.work_dir.resolve()
     package_root = work_dir / "package"
@@ -109,14 +123,16 @@ def main() -> None:
     copy_source_package(package_root)
     manifest = package_manifest(package_root)
     payloads = {}
-    for platform_key in sorted(PLATFORMS):
+    for platform_key in platforms:
         payload_dir = payload_root / platform_key
         payloads[platform_key] = copy_payload(payload_dir, package_root, platform_key, expected_source_commit)
+        if args.support_mode is not None and payloads[platform_key]["expected_support_mode"] != args.support_mode:
+            fail(f"payload support mode mismatch for {platform_key}: expected {args.support_mode}, got {payloads[platform_key]['expected_support_mode']}")
         if payloads[platform_key]["package"]["name"] != manifest["name"] or payloads[platform_key]["package"]["version"] != manifest["version"]:
             fail(f"payload package identity mismatch for {platform_key}")
         if payloads[platform_key]["source_commit"] != expected_source_commit:
             fail(f"payload source_commit mismatch for {platform_key}")
-    assert_expected_plugin_set(package_root)
+    assert_expected_plugin_set(package_root, platforms)
     validate_unity_package_meta_contract(package_root)
     validate_no_forbidden_package_files(package_root)
     deterministic_tgz(package_root, args.output.resolve())

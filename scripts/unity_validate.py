@@ -25,7 +25,7 @@ from unity_release_contract import (
     validate_no_forbidden_package_files,
     validate_unity_package_meta_contract,
 )
-from validate_upm_tgz import extract_tgz, validate_against_payloads, validate_required_package_files
+from validate_upm_tgz import extract_tgz, parse_platforms, validate_against_payloads, validate_required_package_files
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PACKAGE_ROOT = ROOT / PACKAGE_ROOT_RELATIVE
@@ -251,6 +251,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tgz", type=Path, default=None, help="UPM .tgz package used by --package-source tgz.")
     parser.add_argument("--tgz-payload-root", type=Path, default=None, help="Validated native-payload root used to run static .tgz validation before Unity import.")
     parser.add_argument("--tgz-expected-source-commit", default=None, help="Expected native payload source commit for --tgz-payload-root validation.")
+    parser.add_argument("--tgz-platforms", default=",".join(sorted(PLATFORMS)), help="Comma-separated native payload platforms expected inside --tgz.")
+    parser.add_argument("--tgz-support-mode", choices=("stub", "runtime"), default=None, help="Require --tgz native payloads to declare this support mode.")
     parser.add_argument("--expect-runtime-supported", action="store_true", help="Require Unity Editor bridge diagnostics to report runtime_supported=true during player validation.")
     parser.add_argument("--keep-project", action="store_true")
     parser.add_argument("--optional", action="store_true", help="Print PENDING and exit 0 instead of failing when Unity is unavailable.")
@@ -411,7 +413,7 @@ def validate_tgz_static(args: argparse.Namespace, tgz: Path) -> dict[str, str]:
         package_root = extract_tgz(tgz, Path(tmp) / "extract")
         validate_required_package_files(package_root)
         validate_no_forbidden_package_files(package_root)
-        validate_against_payloads(package_root, args.tgz_payload_root.resolve(), expected_source_commit)
+        validate_against_payloads(package_root, args.tgz_payload_root.resolve(), expected_source_commit, parse_platforms(args.tgz_platforms), args.tgz_support_mode)
     return {
         "mode": "validate_upm_tgz_static",
         "payload_root": str(args.tgz_payload_root.resolve()),
@@ -515,6 +517,10 @@ def main() -> None:
             fail(f"expected native plugin is absent from staged package: {expected_plugin}. Build/create a native payload and pass --native-payload.")
     if args.validation_scope == "player" and args.package_source == "git":
         fail("--package-source git is source-only in this repository; use --validation-scope import, or validate Player/native plugin inclusion with --package-source file or tgz")
+    if args.expect_runtime_supported and args.validation_scope != "player":
+        fail("--expect-runtime-supported requires --validation-scope player")
+    if args.expect_runtime_supported and args.package_source == "tgz" and args.tgz_support_mode != "runtime":
+        fail("--expect-runtime-supported with --package-source tgz requires --tgz-support-mode runtime so static validation cannot accept a stub payload")
 
     unity = resolve_unity(args.unity, args.optional)
     version = unity_version(unity)
