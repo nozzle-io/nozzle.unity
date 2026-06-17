@@ -483,8 +483,8 @@ def package_lock_identity(project: Path, package_identity_data: dict[str, Any]) 
         identity["resolved_revision"] = resolved_revision
     if package_identity_data.get("source") == "tgz":
         expected_dependency = f"file:{Path(package_identity_data['path']).resolve().as_posix()}"
-        if source not in {"local", "tarball"}:
-            fail(f"Unity package lock source for tgz dependency must be local/tarball, got {entry.get('source')!r}")
+        if source not in {"local", "tarball", "local-tarball"}:
+            fail(f"Unity package lock source for tgz dependency must be local/tarball/local-tarball, got {entry.get('source')!r}")
         if version != expected_dependency:
             fail(f"Unity package lock tgz dependency mismatch; expected {expected_dependency!r}, got {version!r}")
         identity["resolved_dependency"] = version

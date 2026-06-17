@@ -408,9 +408,10 @@ def check_unity_validate_generated_project_contract() -> None:
         if added_path:
             sys.path.remove(scripts_root)
     write_project = namespace.get("write_project")
+    package_lock_identity = namespace.get("package_lock_identity")
     targets = namespace.get("TARGETS")
-    if not callable(write_project) or not isinstance(targets, dict) or "macos" not in targets:
-        fail("unity_validate.py must expose write_project() and TARGETS for generated-project contract checks")
+    if not callable(write_project) or not callable(package_lock_identity) or not isinstance(targets, dict) or "macos" not in targets:
+        fail("unity_validate.py must expose write_project(), package_lock_identity(), and TARGETS for generated-project contract checks")
 
     with tempfile.TemporaryDirectory(prefix="nozzle-unity-sanity-project-") as tmp:
         project = Path(tmp) / "project"
@@ -429,6 +430,41 @@ def check_unity_validate_generated_project_contract() -> None:
             fail(f"generated {VALIDATION_ASMDEF_NAME} must remain autoReferenced for Unity executeMethod discovery")
         if "Nozzle.Unity" not in data.get("references", []):
             fail(f"generated {VALIDATION_ASMDEF_NAME} must explicitly reference Nozzle.Unity")
+
+        tgz = Path(tmp) / "org.nozzle-io.unity-test.tgz"
+        tgz.write_bytes(b"not-a-real-tgz; package_lock_identity only checks lock metadata")
+        lock_dir = project / "Packages"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_dir / "packages-lock.json"
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "dependencies": {
+                        "org.nozzle-io.unity": {
+                            "version": f"file:{tgz.resolve().as_posix()}",
+                            "depth": 0,
+                            "source": "local-tarball",
+                            "dependencies": {},
+                        }
+                    }
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        identity = package_lock_identity(
+            project,
+            {
+                "source": "tgz",
+                "path": str(tgz),
+                "filename": tgz.name,
+                "sha256": "dummy",
+            },
+        )
+        if identity.get("resolved_dependency") != f"file:{tgz.resolve().as_posix()}":
+            fail("unity_validate.py must accept Unity packages-lock source=local-tarball for tgz dependencies")
 
 
 def check_native_bridge_sources() -> None:
