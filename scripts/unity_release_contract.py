@@ -44,6 +44,18 @@ FORBIDDEN_PACKAGE_PARTS = {
     "UserSettings",
     "validation.json",
 }
+REQUIRED_UNITY_PACKAGE_META_IMPORTERS = {
+    "Runtime.meta": "DefaultImporter:",
+    "Runtime/Native.meta": "DefaultImporter:",
+    "Runtime/Nozzle.Unity.asmdef.meta": "AssemblyDefinitionImporter:",
+    "Runtime/Native/NozzleNative.cs.meta": "MonoImporter:",
+    "Runtime/NozzleTypes.cs.meta": "MonoImporter:",
+    "Runtime/NozzleSender.cs.meta": "MonoImporter:",
+    "Runtime/NozzleReceiver.cs.meta": "MonoImporter:",
+    "Runtime/NozzleDiscovery.cs.meta": "MonoImporter:",
+    "Runtime/NozzleRenderThreadDispatch.cs.meta": "MonoImporter:",
+    "Runtime/NozzleRuntimeSupport.cs.meta": "MonoImporter:",
+}
 
 
 @dataclass(frozen=True)
@@ -551,6 +563,27 @@ def validate_no_forbidden_package_files(package_root: Path) -> None:
             fail(f"forbidden file leaked into UPM package: {rel.as_posix()}")
         if path.is_file() and path.suffix in {".pyc", ".pdb"}:
             fail(f"forbidden build/debug file leaked into UPM package: {rel.as_posix()}")
+
+
+def validate_unity_package_meta_contract(package_root: Path) -> None:
+    seen_guids: dict[str, str] = {}
+    for rel, importer in REQUIRED_UNITY_PACKAGE_META_IMPORTERS.items():
+        meta_path = package_root / rel
+        if not meta_path.is_file():
+            fail(f"UPM package missing required Unity .meta file: {rel}")
+        text = meta_path.read_text(encoding="utf-8")
+        if importer not in text:
+            fail(f"Unity .meta {rel} must use {importer.rstrip(':')} metadata")
+        if rel in {"Runtime.meta", "Runtime/Native.meta"}:
+            if "folderAsset: yes" not in text:
+                fail(f"Unity directory .meta {rel} must contain folderAsset: yes")
+        match = re.search(r"^guid: ([0-9a-f]{32})$", text, flags=re.MULTILINE)
+        if match is None:
+            fail(f"Unity .meta {rel} must contain a stable 32-hex guid")
+        guid = match.group(1)
+        if guid in seen_guids:
+            fail(f"Unity .meta guid collision: {rel} and {seen_guids[guid]} both use {guid}")
+        seen_guids[guid] = rel
 
 
 def current_git_sha(root: Path) -> str:

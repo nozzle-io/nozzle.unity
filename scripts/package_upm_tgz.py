@@ -17,6 +17,7 @@ from unity_release_contract import (
     fail,
     package_manifest,
     validate_no_forbidden_package_files,
+    validate_unity_package_meta_contract,
     validate_payload_schema,
 )
 
@@ -116,6 +117,7 @@ def main() -> None:
         if payloads[platform_key]["source_commit"] != expected_source_commit:
             fail(f"payload source_commit mismatch for {platform_key}")
     assert_expected_plugin_set(package_root)
+    validate_unity_package_meta_contract(package_root)
     validate_no_forbidden_package_files(package_root)
     deterministic_tgz(package_root, args.output.resolve())
     print(f"UPM tgz created: {args.output.resolve()}")

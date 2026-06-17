@@ -23,6 +23,7 @@ from unity_release_contract import (
     package_manifest,
     sha256_file,
     validate_no_forbidden_package_files,
+    validate_unity_package_meta_contract,
 )
 from validate_upm_tgz import extract_tgz, validate_against_payloads, validate_required_package_files
 
@@ -424,6 +425,8 @@ def package_dependency(args: argparse.Namespace, contract_key: str) -> tuple[str
         copy_package_source(args.package_root.resolve(), staged_package)
         if args.native_payload:
             overlay_native_payload(staged_package, resolve_payload_dir(args.native_payload, contract_key), PLATFORMS[contract_key].plugin_relative_path)
+        validate_unity_package_meta_contract(staged_package)
+        validate_no_forbidden_package_files(staged_package)
         manifest = package_manifest(staged_package)
         return f"file:{staged_package.as_posix()}", staged_package, {
             "source": "file",

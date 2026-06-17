@@ -21,6 +21,7 @@ from unity_release_contract import (
     package_manifest,
     sha256_file,
     validate_no_forbidden_package_files,
+    validate_unity_package_meta_contract,
     validate_payload_schema,
     validate_plugin_meta,
 )
@@ -92,8 +93,12 @@ def validate_required_package_files(package_root: Path) -> None:
         "README.md",
         "LICENSE.md",
         "Third Party Notices.md",
+        "Runtime.meta",
         "Runtime/Nozzle.Unity.asmdef",
+        "Runtime/Nozzle.Unity.asmdef.meta",
+        "Runtime/Native.meta",
         "Runtime/Native/NozzleNative.cs",
+        "Runtime/Native/NozzleNative.cs.meta",
         "Native~/include/nozzle_unity/nozzle_unity_bridge.h",
         "Documentation~/supported-platforms.md",
         "Documentation~/graphics-api-support.md",
@@ -111,6 +116,7 @@ def validate_required_package_files(package_root: Path) -> None:
         fail("UPM tgz package.json repository.url must reference nozzle-io/nozzle.unity")
     if manifest.get("license") != "MIT":
         fail("UPM tgz package.json license must be MIT")
+    validate_unity_package_meta_contract(package_root)
 
 
 def write_manifest_preflight(tgz: Path, destination: Path) -> None:

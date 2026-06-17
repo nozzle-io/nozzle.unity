@@ -30,6 +30,18 @@ VALIDATION_ASMDEF_EXPECTED = {
     "references": ["Nozzle.Unity"],
     "includePlatforms": ["Editor"],
 }
+REQUIRED_UNITY_PACKAGE_META_IMPORTERS = {
+    "Runtime.meta": "DefaultImporter:",
+    "Runtime/Native.meta": "DefaultImporter:",
+    "Runtime/Nozzle.Unity.asmdef.meta": "AssemblyDefinitionImporter:",
+    "Runtime/Native/NozzleNative.cs.meta": "MonoImporter:",
+    "Runtime/NozzleTypes.cs.meta": "MonoImporter:",
+    "Runtime/NozzleSender.cs.meta": "MonoImporter:",
+    "Runtime/NozzleReceiver.cs.meta": "MonoImporter:",
+    "Runtime/NozzleDiscovery.cs.meta": "MonoImporter:",
+    "Runtime/NozzleRenderThreadDispatch.cs.meta": "MonoImporter:",
+    "Runtime/NozzleRuntimeSupport.cs.meta": "MonoImporter:",
+}
 
 
 
@@ -140,6 +152,25 @@ def check_asmdef() -> None:
     expect_equal(asmdef.get("name"), "Nozzle.Unity", "asmdef name")
     expect_equal(asmdef.get("rootNamespace"), "Nozzle", "asmdef rootNamespace")
     expect_equal(asmdef.get("allowUnsafeCode"), True, "asmdef allowUnsafeCode")
+
+
+def check_unity_package_meta_contract() -> None:
+    seen_guids: dict[str, str] = {}
+    for rel, importer in REQUIRED_UNITY_PACKAGE_META_IMPORTERS.items():
+        meta_path = PACKAGE_ROOT / rel
+        require_file(meta_path)
+        text = meta_path.read_text(encoding="utf-8")
+        if importer not in text:
+            fail(f"{rel} must use {importer.rstrip(':')} metadata")
+        if rel in {"Runtime.meta", "Runtime/Native.meta"} and "folderAsset: yes" not in text:
+            fail(f"{rel} must contain folderAsset: yes")
+        guid_line = next((line for line in text.splitlines() if line.startswith("guid: ")), "")
+        guid = guid_line.removeprefix("guid: ")
+        if len(guid) != 32 or any(char not in "0123456789abcdef" for char in guid):
+            fail(f"{rel} must contain a stable 32-hex guid")
+        if guid in seen_guids:
+            fail(f"Unity .meta guid collision: {rel} and {seen_guids[guid]} both use {guid}")
+        seen_guids[guid] = rel
 
 
 def check_runtime_sources() -> None:
@@ -866,6 +897,7 @@ def main() -> None:
     print("nozzle.unity: Project Sanity only; no Unity Editor build/test coverage.")
     check_package_manifest()
     check_asmdef()
+    check_unity_package_meta_contract()
     check_runtime_sources()
     check_unity_validate_generated_project_contract()
     check_native_bridge_sources()
