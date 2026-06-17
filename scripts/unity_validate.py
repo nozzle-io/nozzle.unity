@@ -509,7 +509,12 @@ def main() -> None:
         "-batchmode",
         "-quit",
     ]
-    if not args.expect_runtime_supported:
+    if args.expect_runtime_supported:
+        if args.target == "windows-x86_64":
+            command.append("-force-d3d11")
+        elif args.target == "macos":
+            command.append("-force-metal")
+    else:
         command.append("-nographics")
     command.extend([
         "-projectPath", str(project),
