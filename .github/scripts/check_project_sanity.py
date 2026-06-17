@@ -14,6 +14,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,13 @@ NATIVE_SOURCE_ROOT = PACKAGE_ROOT / "Native~"
 DOCUMENTATION_ROOT = PACKAGE_ROOT / "Documentation~"
 SAMPLES_ROOT = PACKAGE_ROOT / "Samples~"
 NATIVE_LIBRARY_SUFFIXES = {".dll", ".dylib", ".so"}
+VALIDATION_ASMDEF_NAME = "Nozzle.UnityValidation.Editor.asmdef"
+VALIDATION_ASMDEF_EXPECTED = {
+    "name": "Nozzle.UnityValidation.Editor",
+    "references": ["Nozzle.Unity"],
+    "includePlatforms": ["Editor"],
+}
+
 
 
 def fail(message: str) -> None:
@@ -354,6 +362,44 @@ def check_docs_and_samples() -> None:
         require_text(DOCUMENTATION_ROOT / "troubleshooting.md", "DllNotFoundException: nozzle_unity")
 
 
+
+def check_unity_validate_generated_project_contract() -> None:
+    script_path = ROOT / "scripts" / "unity_validate.py"
+    namespace: dict[str, object] = {"__file__": str(script_path), "__name__": "__nozzle_unity_validate_contract__"}
+    scripts_root = str((ROOT / "scripts").resolve())
+    added_path = False
+    if scripts_root not in sys.path:
+        sys.path.insert(0, scripts_root)
+        added_path = True
+    try:
+        exec(compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"), namespace)
+    finally:
+        if added_path:
+            sys.path.remove(scripts_root)
+    write_project = namespace.get("write_project")
+    targets = namespace.get("TARGETS")
+    if not callable(write_project) or not isinstance(targets, dict) or "macos" not in targets:
+        fail("unity_validate.py must expose write_project() and TARGETS for generated-project contract checks")
+
+    with tempfile.TemporaryDirectory(prefix="nozzle-unity-sanity-project-") as tmp:
+        project = Path(tmp) / "project"
+        write_project(project, "file:/tmp/org.nozzle-io.unity", targets["macos"], "6000.4.11f1")
+        validation_script = project / "Assets" / "Editor" / "NozzleUnityValidation.cs"
+        validation_asmdef = project / "Assets" / "Editor" / VALIDATION_ASMDEF_NAME
+        if not validation_script.is_file():
+            fail(f"unity_validate.py must generate Assets/Editor/NozzleUnityValidation.cs, missing {validation_script}")
+        if not validation_asmdef.is_file():
+            fail(f"unity_validate.py must generate {VALIDATION_ASMDEF_NAME} beside the validation script")
+        data = load_json(validation_asmdef)
+        for key, expected in VALIDATION_ASMDEF_EXPECTED.items():
+            if data.get(key) != expected:
+                fail(f"generated {VALIDATION_ASMDEF_NAME} {key} must be {expected!r}, got {data.get(key)!r}")
+        if data.get("autoReferenced") is not True:
+            fail(f"generated {VALIDATION_ASMDEF_NAME} must remain autoReferenced for Unity executeMethod discovery")
+        if "Nozzle.Unity" not in data.get("references", []):
+            fail(f"generated {VALIDATION_ASMDEF_NAME} must explicitly reference Nozzle.Unity")
+
+
 def check_native_bridge_sources() -> None:
     required_native_files = [
         NATIVE_SOURCE_ROOT / "README.md",
@@ -457,6 +503,10 @@ def check_native_bridge_sources() -> None:
     require_text(unity_validate, "native_plugin_matches")
     require_text(unity_validate, "Unity log tail")
     require_text(unity_validate, "NOZZLE_UNITY_VALIDATION_RESULT")
+    require_text(unity_validate, "VALIDATION_ASMDEF")
+    require_text(unity_validate, "Nozzle.UnityValidation.Editor.asmdef")
+    require_text(unity_validate, '"references": ["Nozzle.Unity"]', "validation asmdef must explicitly reference package runtime asmdef")
+    require_text(unity_validate, '"includePlatforms": ["Editor"]', "validation asmdef must be Editor-only")
 
 
 def run_cmake_configure(build_dir: Path, definitions: list[str]) -> None:
@@ -817,6 +867,7 @@ def main() -> None:
     check_package_manifest()
     check_asmdef()
     check_runtime_sources()
+    check_unity_validate_generated_project_contract()
     check_native_bridge_sources()
     check_docs_and_samples()
     check_submodules()

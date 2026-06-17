@@ -220,6 +220,21 @@ namespace Nozzle.UnityValidation
 }
 '''
 
+VALIDATION_ASMDEF = {
+    "name": "Nozzle.UnityValidation.Editor",
+    "rootNamespace": "Nozzle.UnityValidation",
+    "references": ["Nozzle.Unity"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": False,
+    "overrideReferences": False,
+    "precompiledReferences": [],
+    "autoReferenced": True,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": False,
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -341,6 +356,7 @@ def write_project(project: Path, package_dependency: str, target: dict[str, str]
     (project / "Packages").mkdir(parents=True, exist_ok=True)
     (project / "ProjectSettings").mkdir(parents=True, exist_ok=True)
     (project / "Assets" / "Editor" / "NozzleUnityValidation.cs").write_text(EDITOR_SCRIPT, encoding="utf-8")
+    (project / "Assets" / "Editor" / "Nozzle.UnityValidation.Editor.asmdef").write_text(json.dumps(VALIDATION_ASMDEF, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
         "dependencies": {
             PACKAGE_NAME: package_dependency,
