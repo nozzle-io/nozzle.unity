@@ -82,10 +82,22 @@ jobs:
           ]
           if "${{ matrix.platform }}" == "macos":
               command.append("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64")
+          if "${{ matrix.platform }}" == "linux-x86_64":
+              linux_baseline_flags = "-march=x86-64-v2 -mtune=generic"
+              command.extend([
+                  f"-DCMAKE_C_FLAGS={linux_baseline_flags}",
+                  f"-DCMAKE_CXX_FLAGS={linux_baseline_flags}",
+              ])
           subprocess.run(command, check=True)
 
       - name: Build staged native bridge artifact
         run: cmake --build build/native-bridge --target nozzle_unity_package_artifact --config Release --parallel
+
+      - name: Verify staged Linux native payload ISA baseline
+        if: matrix.platform == 'linux-x86_64'
+        run: >
+          bash nozzle/scripts/check_x86_64_isa.sh
+          build/nozzle-unity-artifact/Packages/org.nozzle-io.unity/Runtime/Plugins/Linux/x86_64/libnozzle_unity.so
 
       - name: Validate staged native bridge artifact boundary
         run: ${{ matrix.python }} .github/scripts/check_project_sanity.py --skip-stub-build --native-artifact build/nozzle-unity-artifact
